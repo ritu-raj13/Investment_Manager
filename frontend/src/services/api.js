@@ -1,13 +1,37 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+// API Base URL - automatically uses environment variable in production
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // Important: enables cookies/sessions for authentication
 });
+
+// Add response interceptor to handle authentication errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Unauthorized - redirect to login
+      const currentPath = window.location.pathname;
+      if (currentPath !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Authentication API
+export const authAPI = {
+  login: (username, password) => api.post('/auth/login', { username, password }),
+  logout: () => api.post('/auth/logout'),
+  checkAuth: () => api.get('/auth/check'),
+};
 
 // Stock Tracking API
 export const stockAPI = {

@@ -1,16 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { Box, AppBar, Toolbar, Typography, Tabs, Tab, Container, Fab, Zoom } from '@mui/material';
+import { 
+  Box, 
+  AppBar, 
+  Toolbar, 
+  Typography, 
+  Tabs, 
+  Tab, 
+  Container, 
+  Fab, 
+  Zoom,
+  CircularProgress,
+  IconButton,
+  Tooltip
+} from '@mui/material';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
 import SettingsIcon from '@mui/icons-material/Settings';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import LogoutIcon from '@mui/icons-material/Logout';
 import StockTracking from './components/StockTracking';
 import Portfolio from './components/Portfolio';
 import Analytics from './components/Analytics';
 import Settings from './components/Settings';
+import Login from './components/Login';
+import { authAPI } from './services/api';
 
 const theme = createTheme({
   palette: {
@@ -61,9 +77,46 @@ const theme = createTheme({
 function App() {
   const [currentTab, setCurrentTab] = useState(0);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [username, setUsername] = useState('');
 
   const handleTabChange = (event, newValue) => {
     setCurrentTab(newValue);
+  };
+
+  // Check authentication status on mount
+  useEffect(() => {
+    const checkAuthentication = async () => {
+      try {
+        const response = await authAPI.checkAuth();
+        setIsAuthenticated(true);
+        setUsername(response.data.username);
+      } catch (error) {
+        setIsAuthenticated(false);
+      } finally {
+        setIsCheckingAuth(false);
+      }
+    };
+
+    checkAuthentication();
+  }, []);
+
+  // Handle successful login
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+    setIsCheckingAuth(false);
+  };
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await authAPI.logout();
+      setIsAuthenticated(false);
+      setUsername('');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
   };
 
   // Show/hide back to top button based on scroll position
@@ -87,6 +140,37 @@ function App() {
     });
   };
 
+  // Show loading spinner while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            minHeight: '100vh',
+            bgcolor: 'background.default',
+          }}
+        >
+          <CircularProgress size={60} />
+        </Box>
+      </ThemeProvider>
+    );
+  }
+
+  // Show login page if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Login onLogin={handleLogin} />
+      </ThemeProvider>
+    );
+  }
+
+  // Show main app if authenticated
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -106,6 +190,16 @@ function App() {
             <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
               Investment Manager
             </Typography>
+            {username && (
+              <Typography variant="body2" sx={{ mr: 2, opacity: 0.8 }}>
+                {username}
+              </Typography>
+            )}
+            <Tooltip title="Logout">
+              <IconButton color="inherit" onClick={handleLogout}>
+                <LogoutIcon />
+              </IconButton>
+            </Tooltip>
           </Toolbar>
           <Tabs 
             value={currentTab} 

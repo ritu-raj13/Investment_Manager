@@ -7,15 +7,8 @@ import {
   CardContent,
   Grid,
   Chip,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Alert,
   CircularProgress,
-  Divider,
   IconButton,
   Tooltip,
 } from '@mui/material';
@@ -27,7 +20,7 @@ import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import SellIcon from '@mui/icons-material/Sell';
 import AddShoppingCartIcon from '@mui/icons-material/AddShoppingCart';
 import { analyticsAPI } from '../services/api';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 const Analytics = () => {
   const [loading, setLoading] = useState(true);
@@ -54,10 +47,6 @@ const Analytics = () => {
 
   const formatCurrency = (value) => {
     return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
-
-  const formatPercent = (value) => {
-    return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
   };
 
   // Prepare chart data

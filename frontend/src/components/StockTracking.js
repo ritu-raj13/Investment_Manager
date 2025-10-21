@@ -20,7 +20,6 @@ import {
   Snackbar,
   Card,
   CardContent,
-  CardActions,
   Collapse,
   Autocomplete,
 } from '@mui/material';
@@ -268,27 +267,6 @@ const StockTracking = () => {
 
   const showSnackbar = (message, severity) => {
     setSnackbar({ open: true, message, severity });
-  };
-
-  const getStatusColor = (status) => {
-    switch (status?.toUpperCase()) {
-      case 'BUY':
-      case 'BUY ZONE':
-        return 'success';  // Green
-      case 'SELL':
-      case 'SELL ZONE':
-        return 'error';    // Red
-      case 'AVERAGE':
-      case 'AVERAGE ZONE':
-        return 'warning';  // Yellow/Orange
-      case 'WATCHING':
-        return 'info';     // Blue (changed from default)
-      case 'HOLD':
-      case 'HOLD ZONE':
-        return 'secondary'; // Purple (changed from default)
-      default:
-        return 'default';
-    }
   };
 
   const formatStatusDisplay = (status) => {

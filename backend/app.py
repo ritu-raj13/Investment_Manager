@@ -1,6 +1,9 @@
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import login_user, logout_user, current_user
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from datetime import datetime
 import yfinance as yf
 from typing import List, Dict
@@ -8,9 +11,18 @@ import os
 import pandas as pd
 import shutil
 from werkzeug.utils import secure_filename
-from nse_api import get_nse_price
-from price_scraper import get_scraped_price, get_stock_details
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Import modules from organized packages
+from config import get_config
 from utils import (
+    init_auth, 
+    api_login_required, 
+    User, 
+    verify_credentials,
     parse_zone, 
     calculate_holdings, 
     validate_transaction_data,
@@ -18,15 +30,29 @@ from utils import (
     format_refresh_response,
     clean_symbol
 )
+from services import get_nse_price, get_scraped_price, get_stock_details
 
+# Initialize Flask app
 app = Flask(__name__)
-CORS(app)
 
-# Database configuration
-basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'investment_manager.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Load configuration (development or production)
+app.config.from_object(get_config())
 
+# Initialize CORS with configuration
+CORS(app, origins=app.config['CORS_ORIGINS'], supports_credentials=True)
+
+# Initialize authentication
+login_manager, admin_username, admin_password_hash = init_auth(app)
+
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per minute"],
+    storage_uri=app.config.get('RATELIMIT_STORAGE_URL', 'memory://')
+)
+
+# Initialize database
 db = SQLAlchemy(app)
 
 # Models
@@ -111,8 +137,79 @@ class PortfolioSettings(db.Model):
         }
 
 
-# Stock Tracking Routes
+# ============================================================================
+# Authentication Routes (No auth required)
+# ============================================================================
+
+@app.route('/api/auth/login', methods=['POST'])
+@limiter.limit("5 per minute")  # Prevent brute force attacks
+def login():
+    """User login endpoint"""
+    data = request.json
+    
+    if not data:
+        return jsonify({'error': 'Request body required'}), 400
+    
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    
+    if not username or not password:
+        return jsonify({'error': 'Username and password required'}), 400
+    
+    # Verify credentials
+    if verify_credentials(username, password, admin_username, admin_password_hash):
+        user = User(admin_username)
+        login_user(user, remember=True)
+        return jsonify({
+            'message': 'Login successful',
+            'username': username
+        })
+    
+    return jsonify({'error': 'Invalid credentials'}), 401
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+@api_login_required
+def logout():
+    """User logout endpoint"""
+    logout_user()
+    return jsonify({'message': 'Logged out successfully'})
+
+
+@app.route('/api/auth/check', methods=['GET'])
+def check_auth():
+    """Check if user is authenticated"""
+    if current_user.is_authenticated:
+        return jsonify({
+            'authenticated': True,
+            'username': current_user.username
+        })
+    return jsonify({'authenticated': False}), 401
+
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for monitoring (no auth required)"""
+    try:
+        # Check database connection
+        db.session.execute('SELECT 1')
+        db_status = 'connected'
+    except Exception as e:
+        db_status = f'error: {str(e)}'
+    
+    return jsonify({
+        'status': 'healthy',
+        'database': db_status,
+        'environment': app.config.get('ENV', 'unknown')
+    })
+
+
+# ============================================================================
+# Stock Tracking Routes (Auth required)
+# ============================================================================
+
 @app.route('/api/stocks', methods=['GET'])
+@api_login_required
 def get_stocks():
     """Get all tracked stocks"""
     stocks = Stock.query.all()
@@ -120,6 +217,7 @@ def get_stocks():
 
 
 @app.route('/api/stocks/<int:stock_id>', methods=['GET'])
+@api_login_required
 def get_stock(stock_id):
     """Get a specific stock"""
     stock = Stock.query.get_or_404(stock_id)
@@ -127,6 +225,7 @@ def get_stock(stock_id):
 
 
 @app.route('/api/stocks', methods=['POST'])
+@api_login_required
 def create_stock():
     """Create a new stock tracking entry"""
     data = request.json
@@ -224,6 +323,7 @@ def create_stock():
 
 
 @app.route('/api/stocks/<int:stock_id>', methods=['PUT'])
+@api_login_required
 def update_stock(stock_id):
     """Update a stock tracking entry"""
     stock = Stock.query.get_or_404(stock_id)
@@ -249,6 +349,7 @@ def update_stock(stock_id):
 
 
 @app.route('/api/stocks/<int:stock_id>', methods=['DELETE'])
+@api_login_required
 def delete_stock(stock_id):
     """Delete a stock tracking entry"""
     stock = Stock.query.get_or_404(stock_id)
@@ -259,6 +360,7 @@ def delete_stock(stock_id):
 
 
 @app.route('/api/stocks/refresh-alert-stocks', methods=['POST'])
+@api_login_required
 def refresh_alert_stocks():
     """Refresh current prices for stocks that appear in any alert category"""
     
@@ -392,6 +494,7 @@ def refresh_alert_stocks():
     return jsonify(format_refresh_response(len(alert_stocks), updated_count, failed_count))
 
 @app.route('/api/stocks/refresh-prices', methods=['POST'])
+@api_login_required
 def refresh_stock_prices():
     """Refresh current prices for all tracked stocks"""
     stocks = Stock.query.all()
@@ -461,6 +564,7 @@ def refresh_stock_prices():
 
 
 @app.route('/api/stocks/groups', methods=['GET'])
+@api_login_required
 def get_stock_groups():
     """Get all unique stock groups"""
     groups = db.session.query(Stock.group_name).distinct().all()
@@ -468,6 +572,7 @@ def get_stock_groups():
 
 
 @app.route('/api/stocks/sectors', methods=['GET'])
+@api_login_required
 def get_stock_sectors():
     """Get all unique stock sectors"""
     sectors = db.session.query(Stock.sector).distinct().all()
@@ -475,6 +580,7 @@ def get_stock_sectors():
 
 
 @app.route('/api/stocks/fetch-details/<symbol>', methods=['GET'])
+@api_login_required
 def fetch_stock_details(symbol):
     """
     Fetch stock details from Screener.in (name + price) and determine default status
@@ -520,8 +626,12 @@ def fetch_stock_details(symbol):
         }), 500
 
 
-# Portfolio Routes
+# ============================================================================
+# Portfolio Routes (Auth required)
+# ============================================================================
+
 @app.route('/api/portfolio/transactions', methods=['GET'])
+@api_login_required
 def get_portfolio_transactions():
     """Get all portfolio transactions"""
     transactions = PortfolioTransaction.query.order_by(PortfolioTransaction.transaction_date.desc()).all()
@@ -529,6 +639,7 @@ def get_portfolio_transactions():
 
 
 @app.route('/api/portfolio/transactions', methods=['POST'])
+@api_login_required
 def create_transaction():
     """Create a new portfolio transaction"""
     data = request.json
@@ -557,6 +668,7 @@ def create_transaction():
 
 
 @app.route('/api/portfolio/transactions/<int:transaction_id>', methods=['PUT'])
+@api_login_required
 def update_transaction(transaction_id):
     """Update a portfolio transaction"""
     transaction = PortfolioTransaction.query.get_or_404(transaction_id)
@@ -605,6 +717,7 @@ def update_transaction(transaction_id):
 
 
 @app.route('/api/portfolio/transactions/<int:transaction_id>', methods=['DELETE'])
+@api_login_required
 def delete_transaction(transaction_id):
     """Delete a portfolio transaction"""
     transaction = PortfolioTransaction.query.get_or_404(transaction_id)
@@ -615,6 +728,7 @@ def delete_transaction(transaction_id):
 
 
 @app.route('/api/portfolio/summary', methods=['GET'])
+@api_login_required
 def get_portfolio_summary():
     """Get portfolio summary with holdings and performance"""
     transactions = PortfolioTransaction.query.all()
@@ -681,6 +795,7 @@ def get_portfolio_summary():
 
 
 @app.route('/api/portfolio/settings', methods=['GET'])
+@api_login_required
 def get_portfolio_settings():
     """Get portfolio settings (total amount for % calculation)"""
     settings = PortfolioSettings.query.first()
@@ -693,6 +808,7 @@ def get_portfolio_settings():
 
 
 @app.route('/api/portfolio/settings', methods=['PUT'])
+@api_login_required
 def update_portfolio_settings():
     """Update portfolio settings (total amount)"""
     data = request.get_json()
@@ -716,7 +832,12 @@ def create_tables():
     db.create_all()
 
 
+# ============================================================================
+# Analytics Routes (Auth required)
+# ============================================================================
+
 @app.route('/api/analytics/dashboard', methods=['GET'])
+@api_login_required
 def get_analytics_dashboard():
     """Get analytics dashboard data with key metrics and action items"""
     try:
@@ -920,8 +1041,12 @@ def get_analytics_dashboard():
         return jsonify({'error': str(e)}), 500
 
 
-# Import/Export & Backup/Restore Routes
+# ============================================================================
+# Data Management Routes (Auth required)
+# ============================================================================
+
 @app.route('/api/export/stocks', methods=['GET'])
+@api_login_required
 def export_stocks_csv():
     """Export all stocks to CSV"""
     try:
@@ -950,6 +1075,7 @@ def export_stocks_csv():
 
 
 @app.route('/api/import/stocks', methods=['POST'])
+@api_login_required
 def import_stocks_csv():
     """Import stocks from CSV"""
     try:
@@ -1015,6 +1141,7 @@ def import_stocks_csv():
 
 
 @app.route('/api/export/transactions', methods=['GET'])
+@api_login_required
 def export_transactions_csv():
     """Export all portfolio transactions to CSV"""
     try:
@@ -1042,6 +1169,7 @@ def export_transactions_csv():
 
 
 @app.route('/api/import/transactions', methods=['POST'])
+@api_login_required
 def import_transactions_csv():
     """Import portfolio transactions from CSV"""
     try:
@@ -1099,6 +1227,7 @@ def import_transactions_csv():
 
 
 @app.route('/api/backup/database', methods=['GET'])
+@api_login_required
 def backup_database():
     """Download database backup"""
     try:
@@ -1125,6 +1254,7 @@ def backup_database():
 
 
 @app.route('/api/restore/database', methods=['POST'])
+@api_login_required
 def restore_database():
     """Restore database from backup"""
     try:
