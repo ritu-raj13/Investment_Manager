@@ -1,0 +1,10 @@
+# Environment Variables Template for Investment Manager
+# Set these variables in your deployment platform (Railway, Heroku, Render)
+
+FLASK_ENV=production
+SECRET_KEY=generate-with-python-secrets-token-hex-32
+DATABASE_URL=postgresql://user:pass@host:5432/dbname
+ADMIN_USERNAME=your-username
+ADMIN_PASSWORD=your-secure-password
+FRONTEND_URL=https://your-app.railway.app
+

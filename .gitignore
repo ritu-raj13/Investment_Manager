@@ -34,6 +34,7 @@ backend/exports/
 backend/backups/
 exports/
 backups/
+data_export_*.json
 
 # Flask
 instance/
@@ -73,18 +74,33 @@ logs/
 # Test files
 test_*.py
 *_test.py
+*TEST*.md
+*_test_*.md
 
 # Backup files
 *.bak
 *.backup
 *~
 
-# Environment variables
+# Environment variables (ALL variations)
 .env
 .env.local
+.env.production
+.env.development
+backend/.env
+backend/.env.local
+frontend/.env
+*.env
+!.env.example
+!.env.*.example
 
 # Jupyter Notebook
 .ipynb_checkpoints
 
 # pyenv
 .python-version
+
+# Temporary/Summary files
+*SUMMARY*.md
+*_COMPLETE.md
+*CHECKLIST*.md

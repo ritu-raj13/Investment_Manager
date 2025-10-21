@@ -208,11 +208,7 @@ const Portfolio = () => {
     return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
   
-  // Filter holdings and transactions by search term
-  const filteredHoldings = summary?.holdings?.filter(holding =>
-    holding.symbol?.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
-  
+  // Filter transactions by search term
   const filteredTransactions = transactions.filter(transaction =>
     transaction.stock_symbol?.toLowerCase().includes(searchTerm.toLowerCase())
   );
