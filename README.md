@@ -79,7 +79,7 @@ A **production-ready** stock tracking and portfolio management application with 
   - Buy Zone alerts → Only for stocks you DON'T own (entry opportunities)
   - Sell Zone alerts → Only for stocks you DO own (exit opportunities)
   - Average Zone alerts → Only for stocks you DO own (averaging opportunities)
-- **Six alert types** - In/Near Buy, Sell, and Average zones (±5%)
+- **Six alert types** - In/Near Buy, Sell, and Average zones (±3%)
 - **Fast performance** - Uses prices from Stock Tracking (no redundant API calls)
 
 ### 🎨 Modern UI

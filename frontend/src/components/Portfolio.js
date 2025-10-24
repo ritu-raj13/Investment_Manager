@@ -248,6 +248,10 @@ const Portfolio = () => {
       } else if (sortBy === 'gain_loss_pct') {
         aVal = a.gain_loss_pct;
         bVal = b.gain_loss_pct;
+      } else if (sortBy === 'pct_of_total') {
+        // Calculate % of total for sorting
+        aVal = totalAmount > 0 ? (a.invested_amount / totalAmount) * 100 : 0;
+        bVal = totalAmount > 0 ? (b.invested_amount / totalAmount) * 100 : 0;
       }
       
       if (sortOrder === 'asc') {
@@ -495,7 +499,15 @@ const Portfolio = () => {
                       Invested {sortBy === 'invested_amount' && (sortOrder === 'asc' ? '↑' : '↓')}
                     </Box>
                   </TableCell>
-                  <TableCell align="right">% of Total</TableCell>
+                  <TableCell 
+                    align="right" 
+                    onClick={() => handleSort('pct_of_total')}
+                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                      % of Total {sortBy === 'pct_of_total' && (sortOrder === 'asc' ? '↑' : '↓')}
+                    </Box>
+                  </TableCell>
                   <TableCell align="right">Current Value</TableCell>
                   <TableCell 
                     align="right" 
