@@ -370,7 +370,7 @@ def refresh_alert_stocks():
     # Get holdings to determine which stocks user owns
     transactions = PortfolioTransaction.query.all()
     holdings = calculate_holdings(transactions)
-    holding_symbols = set(holdings.keys())
+    holding_symbols_normalized = set(normalize_symbol(s) for s in holdings.keys())
     
     # Identify all alert stocks
     alert_stock_ids = set()
@@ -379,7 +379,8 @@ def refresh_alert_stocks():
         if not stock.current_price:
             continue
         
-        is_in_holdings = stock.symbol in holding_symbols
+        # Flexible symbol matching (check with and without .NS/.BO suffix)
+        is_in_holdings = normalize_symbol(stock.symbol) in holding_symbols_normalized
         current_price = stock.current_price
         
         # Buy zone alerts (only for non-holdings)
@@ -390,8 +391,8 @@ def refresh_alert_stocks():
                 if buy_min <= current_price <= buy_max:
                     alert_stock_ids.add(stock.id)
                     continue
-                # Near buy zone (within 5% above)
-                upper_threshold = buy_max * 1.05
+                # Near buy zone (within 3% above)
+                upper_threshold = buy_max * 1.03
                 if buy_max < current_price <= upper_threshold:
                     alert_stock_ids.add(stock.id)
                     continue
@@ -404,8 +405,8 @@ def refresh_alert_stocks():
                 if sell_min <= current_price <= sell_max:
                     alert_stock_ids.add(stock.id)
                     continue
-                # Near sell zone (within 5% below)
-                lower_threshold = sell_min * 0.95
+                # Near sell zone (within 3% below)
+                lower_threshold = sell_min * 0.97
                 if lower_threshold <= current_price < sell_min:
                     alert_stock_ids.add(stock.id)
                     continue
@@ -418,9 +419,9 @@ def refresh_alert_stocks():
                 if avg_min <= current_price <= avg_max:
                     alert_stock_ids.add(stock.id)
                     continue
-                # Near average zone (within 5% above or below)
-                lower_threshold = avg_min * 0.95
-                upper_threshold = avg_max * 1.05
+                # Near average zone (within 3% above or below)
+                lower_threshold = avg_min * 0.97
+                upper_threshold = avg_max * 1.03
                 if lower_threshold <= current_price < avg_min or avg_max < current_price <= upper_threshold:
                     alert_stock_ids.add(stock.id)
                     continue
@@ -638,6 +639,65 @@ def get_portfolio_transactions():
     return jsonify([t.to_dict() for t in transactions])
 
 
+def normalize_symbol(symbol):
+    """Remove .NS or .BO suffix for comparison"""
+    return symbol.replace('.NS', '').replace('.BO', '').upper()
+
+
+def find_stock_by_symbol(search_symbol):
+    """
+    Find stock matching symbol with flexible matching (with or without .NS/.BO suffix)
+    """
+    # Try exact match first
+    stock = Stock.query.filter_by(symbol=search_symbol).first()
+    if stock:
+        return stock
+    
+    # Try normalized matching (without suffix)
+    normalized_search = normalize_symbol(search_symbol)
+    all_stocks = Stock.query.all()
+    
+    for stock in all_stocks:
+        if normalize_symbol(stock.symbol) == normalized_search:
+            return stock
+    
+    return None
+
+
+def update_stock_status_from_holdings(stock_symbol):
+    """
+    Update stock status based on whether it's currently held in portfolio.
+    Called after transaction create/update/delete to keep status in sync.
+    """
+    # Calculate total holdings for this stock (check both with and without suffix)
+    normalized_symbol = normalize_symbol(stock_symbol)
+    all_transactions = PortfolioTransaction.query.all()
+    
+    total_quantity = 0
+    for txn in all_transactions:
+        if normalize_symbol(txn.stock_symbol) == normalized_symbol:
+            if txn.transaction_type == 'BUY':
+                total_quantity += txn.quantity
+            elif txn.transaction_type == 'SELL':
+                total_quantity -= txn.quantity
+    
+    # Update stock status if it exists in Stock Tracking (flexible matching)
+    stock = find_stock_by_symbol(stock_symbol)
+    if stock:
+        # Set status based on holdings
+        if total_quantity > 0:
+            stock.status = 'HOLD'
+        else:
+            # Only change to WATCHING if current status is HOLD
+            # Don't override other statuses (BUY_ZONE, SELL_ZONE, etc.)
+            if stock.status == 'HOLD':
+                stock.status = 'WATCHING'
+        
+        db.session.commit()
+    else:
+        print(f"[WARNING] Stock {stock_symbol} not found in Stock Tracking table")
+
+
 @app.route('/api/portfolio/transactions', methods=['POST'])
 @api_login_required
 def create_transaction():
@@ -663,6 +723,9 @@ def create_transaction():
     
     db.session.add(transaction)
     db.session.commit()
+    
+    # Update stock status based on new holdings
+    update_stock_status_from_holdings(transaction.stock_symbol)
     
     return jsonify(transaction.to_dict()), 201
 
@@ -713,6 +776,9 @@ def update_transaction(transaction_id):
     
     db.session.commit()
     
+    # Update stock status based on updated holdings
+    update_stock_status_from_holdings(transaction.stock_symbol)
+    
     return jsonify(transaction.to_dict())
 
 
@@ -721,8 +787,13 @@ def update_transaction(transaction_id):
 def delete_transaction(transaction_id):
     """Delete a portfolio transaction"""
     transaction = PortfolioTransaction.query.get_or_404(transaction_id)
+    stock_symbol = transaction.stock_symbol  # Save symbol before deleting
+    
     db.session.delete(transaction)
     db.session.commit()
+    
+    # Update stock status based on remaining holdings
+    update_stock_status_from_holdings(stock_symbol)
     
     return jsonify({'message': 'Transaction deleted successfully'})
 
@@ -745,9 +816,9 @@ def get_portfolio_summary():
         if holding['quantity'] > 0:  # Only include current holdings
             avg_price = holding['invested_amount'] / holding['quantity'] if holding['quantity'] > 0 else 0
             
-            # Get current price from stocks table (already fetched via Stock Tracking)
+            # Get current price from stocks table (flexible matching for .NS/.BO suffix)
             current_price = 0
-            stock = Stock.query.filter_by(symbol=symbol).first()
+            stock = find_stock_by_symbol(symbol)
             if stock and stock.current_price:
                 current_price = stock.current_price
             
@@ -857,8 +928,8 @@ def get_analytics_dashboard():
         
         for symbol, holding in holdings.items():
             if holding['quantity'] > 0:
-                # Get current price from stocks table
-                stock = Stock.query.filter_by(symbol=symbol).first()
+                # Get current price from stocks table (flexible matching for .NS/.BO suffix)
+                stock = find_stock_by_symbol(symbol)
                 current_price = stock.current_price if stock and stock.current_price else 0
                 
                 current_value = holding['quantity'] * current_price
@@ -896,8 +967,8 @@ def get_analytics_dashboard():
                     weighted_change += holding['day_change_pct'] * weight
             portfolio_day_change_pct = weighted_change
         
-        # Get list of symbols currently in holdings (to exclude from action items)
-        holding_symbols = set(holdings.keys())
+        # Get list of symbols currently in holdings (normalize for flexible matching)
+        holding_symbols_normalized = set(normalize_symbol(s) for s in holdings.keys())
         
         # Find stocks near buy/sell/average zones (action items)
         action_items = {
@@ -914,7 +985,8 @@ def get_analytics_dashboard():
                 continue
             
             current = stock.current_price
-            is_in_holdings = stock.symbol in holding_symbols
+            # Flexible symbol matching (check with and without .NS/.BO suffix)
+            is_in_holdings = normalize_symbol(stock.symbol) in holding_symbols_normalized
             
             # Check buy zone (only for stocks NOT in holdings)
             if not is_in_holdings:
@@ -929,7 +1001,7 @@ def get_analytics_dashboard():
                             'sector': stock.sector,
                             'market_cap': stock.market_cap
                         })
-                    elif buy_max < current <= buy_max * 1.05:  # Within 5% above buy zone
+                    elif buy_max < current <= buy_max * 1.03:  # Within 3% above buy zone
                         action_items['near_buy_zone'].append({
                             'symbol': stock.symbol,
                             'name': stock.name,
@@ -953,7 +1025,7 @@ def get_analytics_dashboard():
                             'sector': stock.sector,
                             'market_cap': stock.market_cap
                         })
-                    elif sell_min * 0.95 <= current < sell_min:  # Within 5% below sell zone
+                    elif sell_min * 0.97 <= current < sell_min:  # Within 3% below sell zone
                         action_items['near_sell_zone'].append({
                             'symbol': stock.symbol,
                             'name': stock.name,
@@ -977,7 +1049,7 @@ def get_analytics_dashboard():
                             'sector': stock.sector,
                             'market_cap': stock.market_cap
                         })
-                    elif avg_max < current <= avg_max * 1.05:  # Within 5% above average zone
+                    elif avg_max < current <= avg_max * 1.03:  # Within 3% above average zone
                         action_items['near_average_zone'].append({
                             'symbol': stock.symbol,
                             'name': stock.name,
@@ -988,7 +1060,7 @@ def get_analytics_dashboard():
                             'sector': stock.sector,
                             'market_cap': stock.market_cap
                         })
-                    elif avg_min * 0.95 <= current < avg_min:  # Within 5% below average zone
+                    elif avg_min * 0.97 <= current < avg_min:  # Within 3% below average zone
                         action_items['near_average_zone'].append({
                             'symbol': stock.symbol,
                             'name': stock.name,

@@ -252,13 +252,13 @@ Refresh prices ONLY for stocks appearing in Analytics alerts.
 **Alert Detection Logic:**
 - **Buy Zone Alerts** (for non-holdings):
   - In buy zone: `buy_min <= price <= buy_max`
-  - Near buy zone: `buy_max < price <= buy_max * 1.05`
+  - Near buy zone: `buy_max < price <= buy_max * 1.03` (within 3%)
 - **Sell Zone Alerts** (for holdings):
   - In sell zone: `sell_min <= price <= sell_max`
-  - Near sell zone: `sell_min * 0.95 <= price < sell_min`
+  - Near sell zone: `sell_min * 0.97 <= price < sell_min` (within 3%)
 - **Average Zone Alerts** (for holdings):
   - In average zone: `avg_min <= price <= avg_max`
-  - Near average zone: `±5%` of zone boundaries
+  - Near average zone: `±3%` of zone boundaries
 
 **Benefits:**
 - Faster than refreshing all stocks
@@ -596,7 +596,7 @@ Get comprehensive analytics data for dashboard.
 - **Buy Zone**: Only for stocks NOT in holdings
 - **Sell Zone**: Only for stocks IN holdings
 - **Average Zone**: Only for stocks IN holdings
-- **Near Zones**: ±5% threshold from zone boundaries
+- **Near Zones**: ±3% threshold from zone boundaries
 
 **Top Gainers/Losers:**
 - Top 5 holdings by gain/loss percentage

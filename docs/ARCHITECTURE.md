@@ -349,7 +349,7 @@ Backend:
   1. Get all stocks & holdings
   2. For each stock:
      - Parse buy/sell/average zones
-     - Check if in/near zone (±5%)
+     - Check if in/near zone (±3%)
      - Consider holdings status
   3. Collect alert stock IDs
   4. Refresh ONLY alert stocks
@@ -370,7 +370,7 @@ Frontend displays simplified notification
 **Implementation:**
 - **Zone Format**: Supports ranges ("250-300") and exact values ("250")
 - **Parsing**: `parse_zone()` in utils.py converts string to (min, max) tuple
-- **Threshold**: ±5% for "near zone" alerts
+- **Threshold**: ±3% for "near zone" alerts
 - **Holdings-Aware**: 
   - Buy zone alerts → Only for stocks NOT in holdings
   - Sell/Average zone alerts → Only for stocks IN holdings
@@ -383,8 +383,8 @@ for stock in all_stocks:
     if not in_holdings:
         if buy_min <= current_price <= buy_max:
             → IN_BUY_ZONE alert
-        elif buy_max < current_price <= buy_max * 1.05:
-            → NEAR_BUY_ZONE alert
+        elif buy_max < current_price <= buy_max * 1.03:
+            → NEAR_BUY_ZONE alert (within 3%)
     
     # Similar logic for sell/average zones for holdings
 ```
