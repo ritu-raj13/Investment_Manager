@@ -21,14 +21,18 @@ A **production-ready** stock tracking and portfolio management application with 
 - **[START_HERE.md](START_HERE.md)** ⭐ **5-minute quickstart guide**
 - **[docs/DEPLOYMENT_QUICKSTART.md](docs/DEPLOYMENT_QUICKSTART.md)** - Complete 30-minute deployment guide
 
-### 📖 **Development & API**
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design, data flow, and technical architecture
+### 📖 **Features & API**
+- **[docs/FEATURES.md](docs/FEATURES.md)** ⭐ **Complete feature documentation** (P/L tracking, allocation colors, etc.)
 - **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** - Complete REST API documentation
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design, data flow, and technical architecture
+
+### 🔧 **Setup & Development**
 - **[docs/SETUP_INSTRUCTIONS.md](docs/SETUP_INSTRUCTIONS.md)** - Detailed installation and troubleshooting guide
 - **[docs/WINDOWS_SETUP_NOTE.md](docs/WINDOWS_SETUP_NOTE.md)** - Windows-specific setup notes
+- **[docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)** - Codebase organization
 
 ### 🔮 **Roadmap**
-- [docs/FUTURE_FEATURES.md](docs/FUTURE_FEATURES.md) - Planned enhancements
+- **[docs/FUTURE_FEATURES.md](docs/FUTURE_FEATURES.md)** - Planned enhancements
 
 ## ✨ Features
 
@@ -53,14 +57,25 @@ A **production-ready** stock tracking and portfolio management application with 
   - Persists across sessions in database
   - Use for planned portfolio allocation calculations
 - **Current Holdings** - Complete holdings view with sorting
-  - **Sortable columns** - Click to sort by Invested Amount, Gain/Loss, or Return %
-  - **% of Total** - Real-time allocation based on YOUR manual total amount (not just invested sum)
+  - **Sticky Headers** - Column headers remain visible while scrolling through holdings
+  - **Sortable columns** - Click to sort by Invested Amount, Unrealized P/L, or Return %
+  - **% of Total with Smart Colors** - Real-time allocation with color coding by market cap:
+    - 🔴 Red: Over-allocated (> threshold + 0.5%)
+    - 🟢 Green: Well-allocated (at threshold to +0.5%)
+    - 🟠 Orange: Under-allocated (< threshold)
+    - Thresholds: Large Cap 5%, Mid Cap 3%, Small Cap 2%
   - **1D Change %** - Daily change percentage for each stock (green/red chips)
   - Symbol display without .NS/.BO suffix (clean view)
   - Real-time portfolio valuation with color-coded gains/losses
+- **Profit & Loss Tracking**
+  - **💰 Realized P/L** - Actual profit/loss from completed SELL transactions
+  - **📈 Unrealized P/L** - Paper gains/losses on current holdings
+  - Per-stock and total portfolio P/L metrics
+  - Accurate average cost basis calculation (FIFO method)
 - **Transaction History** - All buy/sell transactions with clean symbol display
 - **Search by symbol** - Quick filtering in both tabs
-- **Portfolio summary cards** - Total invested, current value, gain/loss, return %, 1 day change (5 cards)
+- **Portfolio summary cards** - Total invested, current value, realized P/L, unrealized P/L, 1 day change (5 cards)
+- **Active Holdings Count** - See number of stocks held and total transactions
 - Track quantity, average price, and transaction history
 - Document reasons for each trade
 - Simplified transaction form (symbol, quantity, price, reason)
@@ -71,15 +86,19 @@ A **production-ready** stock tracking and portfolio management application with 
   - Top 5 Gainers (green cards with percentage and absolute gain)
   - Top 5 Losers (red cards with percentage and absolute loss)
   - Filtered by actual positive/negative returns (no false positives)
-- **Interactive charts** - Visual portfolio insights with clear tooltips
+- **Interactive charts** - Visual portfolio insights with enhanced tooltips
   - Portfolio Value comparison (Invested vs Current)
-  - Sector Allocation pie chart
-  - Market Cap Allocation pie chart
+  - Sector Allocation pie chart with hover tooltips showing:
+    - 📊 Stock count in each sector
+    - Total invested amount
+  - Market Cap Allocation pie chart with hover tooltips showing:
+    - 📊 Stock count in each market cap category
+    - Total invested amount
 - **Smart action items** - Intelligent alerts filtered by holdings
   - Buy Zone alerts → Only for stocks you DON'T own (entry opportunities)
   - Sell Zone alerts → Only for stocks you DO own (exit opportunities)
   - Average Zone alerts → Only for stocks you DO own (averaging opportunities)
-- **Six alert types** - In/Near Buy, Sell, and Average zones (±3%)
+- **Six alert types** - In/Near Buy, Sell, and Average zones (±3% threshold)
 - **Fast performance** - Uses prices from Stock Tracking (no redundant API calls)
 
 ### 🎨 Modern UI
@@ -284,13 +303,16 @@ Frontend opens at: `http://localhost:3000`
 - **Flask** - Python web framework
 - **Flask-Login** - User authentication & session management
 - **Flask-Limiter** - Rate limiting (brute-force protection)
+- **Flask-CORS** - Cross-origin resource sharing
 - **SQLAlchemy** - ORM for database
 - **PostgreSQL** (production) / **SQLite** (development)
 - **Gunicorn** - Production WSGI server
-- **BeautifulSoup4** - Web scraping
+- **BeautifulSoup4** + **lxml** - Web scraping for prices
 - **Requests** - HTTP client
 - **yfinance** - Yahoo Finance API (fallback)
-- **bcrypt** - Password hashing
+- **bcrypt / werkzeug** - Password hashing
+- **python-dotenv** - Environment variable management
+- **Pandas** - CSV import/export
 
 ### Frontend
 - **React** - UI framework with Hooks
@@ -314,26 +336,45 @@ Frontend opens at: `http://localhost:3000`
 Investment_Manager/
 ├── backend/
 │   ├── app.py                      # Flask API server
-│   ├── price_scraper.py            # Web scraping for prices
-│   ├── nse_api.py                  # NSE India API client
-│   ├── migrate_db.py               # Database migration script
-│   ├── requirements.txt            # Python dependencies
-│   └── investment_manager.db       # SQLite database
+│   ├── config/                     # Environment configurations
+│   │   ├── base.py                # Shared settings
+│   │   ├── development.py         # Dev (SQLite)
+│   │   └── production.py          # Prod (PostgreSQL)
+│   ├── utils/                      # Utility modules
+│   │   ├── auth.py                # Authentication
+│   │   ├── holdings.py            # P/L calculations
+│   │   ├── zones.py               # Price zones
+│   │   └── helpers.py             # General utilities
+│   ├── services/                   # External services
+│   │   ├── price_scraper.py       # Web scraping
+│   │   └── nse_api.py             # NSE API
+│   ├── migrations/                 # DB migrations
+│   ├── instance/                   # SQLite database (dev)
+│   └── requirements.txt            # Python dependencies
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── StockTracking.js   # Stock tracking page
-│   │   │   └── Portfolio.js        # Portfolio page
+│   │   │   ├── Login.js           # Authentication
+│   │   │   ├── StockTracking.js   # Stock tracking
+│   │   │   ├── Portfolio.js        # Portfolio & P/L
+│   │   │   ├── Analytics.js        # Analytics dashboard
+│   │   │   └── Settings.js         # Settings & exports
 │   │   ├── services/
-│   │   │   └── api.js              # API client
+│   │   │   └── api.js              # API client (axios)
 │   │   ├── App.js                  # Main app component
 │   │   └── index.js                # Entry point
 │   ├── public/
-│   │   └── index.html
 │   └── package.json                # Node dependencies
-├── README.md                       # This file
-├── SETUP_INSTRUCTIONS.md           # Detailed setup guide
-└── .gitignore                      # Git ignore rules
+├── docs/                            # Documentation
+│   ├── FEATURES.md                 # Feature documentation
+│   ├── API_REFERENCE.md            # API docs
+│   ├── ARCHITECTURE.md             # System design
+│   └── ...                         # Setup & deployment guides
+├── scripts/                         # Helper scripts
+│   └── dev/                        # Development scripts
+│       └── start_dev.bat           # Start dev servers
+├── README.md                        # This file
+└── START_HERE.md                    # Quick start guide
 ```
 
 ## 🔧 API Endpoints

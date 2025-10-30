@@ -43,16 +43,19 @@ This document contains **planned features** for the Investment Manager applicati
 - 📊 Win rate (profitable trades %)
 - 💰 Average holding period
 - 📈 Best/worst trades
-- 🧮 Realized vs. unrealized gains
+- ✅ **Realized vs. unrealized gains** - IMPLEMENTED ✅
 - 📅 Monthly P&L breakdown
 - 🎯 Actual buy vs. planned zone (discipline tracker)
 
 **Implementation:**
-- Backend: Analytics calculations
-- Frontend: Insights dashboard
+- ✅ Realized P/L calculation from SELL transactions (avg cost basis)
+- ✅ Unrealized P/L on current holdings
+- ✅ Per-stock and total portfolio P/L tracking
+- Backend: Analytics calculations for win rate, holding period
+- Frontend: Insights dashboard expansion
 - Closed positions tracking
 
-**Status:** 📋 PLANNED
+**Status:** 🚧 PARTIALLY IMPLEMENTED (P/L tracking done, insights dashboard pending)
 
 ---
 
@@ -199,15 +202,22 @@ This document contains **planned features** for the Investment Manager applicati
 - ✅ 1D Change % (per stock and portfolio-level weighted average)
 - ✅ Top 5 Gainers/Losers (filtered by positive/negative returns)
 - ✅ % of Total Investment (stock-wise allocation with manual total amount)
+- ✅ **Color-Coded Allocation** - Smart color coding by market cap (Red/Green/Orange)
+- ✅ **Realized P/L Tracking** - Actual profit/loss from completed SELL transactions
+- ✅ **Unrealized P/L Tracking** - Paper gains/losses on current holdings
+- ✅ **Sticky Headers** - Portfolio table headers remain visible while scrolling
+- ✅ **Enhanced Analytics Tooltips** - Stock count and details on pie chart hover
 - ✅ Autocomplete for Group & Sector (learns from existing data)
 - ✅ One-click Refresh Alert Stocks (auto-detects alert stocks)
 - ✅ Transaction validation (client + server side)
+- ✅ Symbol normalization (handles .NS/.BO suffix variants automatically)
 
 **Code Quality:**
-- ✅ Modular architecture (utils.py with shared functions)
-- ✅ DRY principle (no duplicate code for parse_zone, calculate_holdings, etc.)
-- ✅ Comprehensive documentation (Architecture, API Reference)
+- ✅ Modular architecture (config/, utils/, services/, migrations/ packages)
+- ✅ DRY principle (no duplicate code, organized utility modules)
+- ✅ Comprehensive documentation (Architecture, API Reference, Features guide)
 - ✅ Type hints and docstrings
+- ✅ Environment-based configuration (dev/prod separation)
 
 ### Phase 2 (Next - Priority Order)
 1. **Historical Tracking** - Foundation for trends
