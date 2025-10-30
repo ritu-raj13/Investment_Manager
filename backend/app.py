@@ -28,7 +28,8 @@ from utils import (
     validate_transaction_data,
     is_in_zone,
     format_refresh_response,
-    clean_symbol
+    clean_symbol,
+    calculate_portfolio_xirr
 )
 from services import get_nse_price, get_scraped_price, get_stock_details
 
@@ -802,67 +803,89 @@ def delete_transaction(transaction_id):
 @api_login_required
 def get_portfolio_summary():
     """Get portfolio summary with holdings and performance"""
-    transactions = PortfolioTransaction.query.all()
-    
-    # Calculate holdings using utility function
-    holdings = calculate_holdings(transactions)
-    
-    # Get current prices and calculate gains/losses
-    summary = []
-    total_invested = 0
-    total_current_value = 0
-    
-    for symbol, holding in holdings.items():
-        if holding['quantity'] > 0:  # Only include current holdings
-            avg_price = holding['invested_amount'] / holding['quantity'] if holding['quantity'] > 0 else 0
+    try:
+        transactions = PortfolioTransaction.query.all()
+        
+        # Calculate holdings using utility function
+        holdings = calculate_holdings(transactions)
+        
+        # Get current prices and calculate gains/losses
+        summary = []
+        total_invested = 0
+        total_current_value = 0
+        total_realized_pnl = 0  # Track total realized profit/loss from all SELL transactions
+        
+        for symbol, holding in holdings.items():
+            # Accumulate realized P/L from all stocks (even those fully sold)
+            total_realized_pnl += holding.get('realized_pnl', 0)
             
-            # Get current price from stocks table (flexible matching for .NS/.BO suffix)
-            current_price = 0
-            stock = find_stock_by_symbol(symbol)
-            if stock and stock.current_price:
-                current_price = stock.current_price
-            
-            current_value = holding['quantity'] * current_price
-            gain_loss = current_value - holding['invested_amount']
-            gain_loss_pct = (gain_loss / holding['invested_amount'] * 100) if holding['invested_amount'] > 0 else 0
-            
-            summary.append({
-                'symbol': symbol,
-                'name': holding['name'],
-                'quantity': holding['quantity'],
-                'avg_price': round(avg_price, 2),
-                'current_price': current_price,
-                'invested_amount': round(holding['invested_amount'], 2),
-                'current_value': round(current_value, 2),
-                'gain_loss': round(gain_loss, 2),
-                'gain_loss_pct': round(gain_loss_pct, 2),
-                'day_change_pct': stock.day_change_pct if stock else None
-            })
-            
-            total_invested += holding['invested_amount']
-            total_current_value += current_value
-    
-    total_gain_loss = total_current_value - total_invested
-    total_gain_loss_pct = (total_gain_loss / total_invested * 100) if total_invested > 0 else 0
-    
-    # Calculate portfolio 1-day change (weighted average)
-    portfolio_day_change_pct = 0
-    if total_current_value > 0:
-        weighted_change = 0
-        for holding in summary:
-            if holding['day_change_pct'] is not None:
-                weight = holding['current_value'] / total_current_value
-                weighted_change += holding['day_change_pct'] * weight
-        portfolio_day_change_pct = weighted_change
-    
-    return jsonify({
-        'holdings': summary,
-        'total_invested': round(total_invested, 2),
-        'total_current_value': round(total_current_value, 2),
-        'total_gain_loss': round(total_gain_loss, 2),
-        'total_gain_loss_pct': round(total_gain_loss_pct, 2),
-        'portfolio_day_change_pct': round(portfolio_day_change_pct, 2)
-    })
+            if holding['quantity'] > 0:  # Only include current holdings in the table
+                avg_price = holding['invested_amount'] / holding['quantity'] if holding['quantity'] > 0 else 0
+                
+                # Get current price from stocks table (flexible matching for .NS/.BO suffix)
+                current_price = 0
+                stock = find_stock_by_symbol(symbol)
+                if stock and stock.current_price:
+                    current_price = stock.current_price
+                
+                current_value = holding['quantity'] * current_price
+                unrealized_pnl = current_value - holding['invested_amount']  # Unrealized P/L
+                unrealized_pnl_pct = (unrealized_pnl / holding['invested_amount'] * 100) if holding['invested_amount'] > 0 else 0
+                
+                summary.append({
+                    'symbol': symbol,
+                    'name': holding['name'],
+                    'quantity': holding['quantity'],
+                    'avg_price': round(avg_price, 2),
+                    'current_price': current_price,
+                    'invested_amount': round(holding['invested_amount'], 2),
+                    'current_value': round(current_value, 2),
+                    'unrealized_pnl': round(unrealized_pnl, 2),  # Renamed from gain_loss
+                    'unrealized_pnl_pct': round(unrealized_pnl_pct, 2),  # Renamed from gain_loss_pct
+                    'realized_pnl': round(holding.get('realized_pnl', 0), 2),  # Add realized P/L per stock
+                    'day_change_pct': stock.day_change_pct if stock else None,
+                    'market_cap': stock.market_cap if stock else None,  # Add market cap for allocation color coding
+                    'holding_period_days': holding.get('holding_period_days', 0)  # FIFO-based holding period
+                })
+                
+                total_invested += holding['invested_amount']
+                total_current_value += current_value
+        
+        total_unrealized_pnl = total_current_value - total_invested
+        total_unrealized_pnl_pct = (total_unrealized_pnl / total_invested * 100) if total_invested > 0 else 0
+        
+        # Total P/L = Realized + Unrealized
+        total_pnl = total_realized_pnl + total_unrealized_pnl
+        
+        # Calculate portfolio 1-day change (weighted average)
+        portfolio_day_change_pct = 0
+        if total_current_value > 0:
+            weighted_change = 0
+            for holding in summary:
+                if holding['day_change_pct'] is not None:
+                    weight = holding['current_value'] / total_current_value
+                    weighted_change += holding['day_change_pct'] * weight
+            portfolio_day_change_pct = weighted_change
+        
+        # Calculate XIRR (Extended Internal Rate of Return)
+        xirr = calculate_portfolio_xirr(transactions, total_current_value)
+        
+        return jsonify({
+            'holdings': summary,
+            'total_invested': round(total_invested, 2),
+            'total_current_value': round(total_current_value, 2),
+            'total_realized_pnl': round(total_realized_pnl, 2),  # NEW: Total realized profit/loss
+            'total_unrealized_pnl': round(total_unrealized_pnl, 2),  # Renamed from total_gain_loss
+            'total_unrealized_pnl_pct': round(total_unrealized_pnl_pct, 2),  # Renamed from total_gain_loss_pct
+            'total_pnl': round(total_pnl, 2),  # NEW: Combined realized + unrealized
+            'portfolio_day_change_pct': round(portfolio_day_change_pct, 2),
+            'xirr': xirr  # Extended Internal Rate of Return (annualized)
+        })
+    except Exception as e:
+        print(f"ERROR in get_portfolio_summary: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Error calculating portfolio summary: {str(e)}'}), 500
 
 
 @app.route('/api/portfolio/settings', methods=['GET'])

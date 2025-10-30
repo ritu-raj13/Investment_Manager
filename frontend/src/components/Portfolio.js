@@ -42,7 +42,7 @@ const Portfolio = () => {
   const [transactions, setTransactions] = useState([]);
   const [summary, setSummary] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState('invested_amount'); // invested_amount, gain_loss, gain_loss_pct
+  const [sortBy, setSortBy] = useState('pct_of_total'); // pct_of_total, unrealized_pnl, unrealized_pnl_pct, holding_period_days
   const [sortOrder, setSortOrder] = useState('desc'); // asc or desc
   const [openDialog, setOpenDialog] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
@@ -207,6 +207,30 @@ const Portfolio = () => {
   const formatCurrency = (value) => {
     return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
+
+  const getAllocationColor = (marketCap, percentage) => {
+    // Determine threshold based on market cap
+    let threshold;
+    if (marketCap === 'Large') {
+      threshold = 5;
+    } else if (marketCap === 'Mid') {
+      threshold = 3;
+    } else if (marketCap === 'Small' || marketCap === 'Micro') {
+      threshold = 2;
+    } else {
+      // Default threshold if market cap is not set
+      return { bgcolor: '#60a5fa', color: 'white' }; // Blue (default)
+    }
+
+    // Color logic: Green includes up to +0.5% above threshold
+    if (percentage > threshold + 0.5) {
+      return { bgcolor: '#ef4444', color: 'white' }; // Red - over allocated (more than +0.5% above threshold)
+    } else if (percentage >= threshold) {
+      return { bgcolor: '#22c55e', color: 'white' }; // Green - good allocation (threshold to threshold+0.5%)
+    } else {
+      return { bgcolor: '#f59e0b', color: 'white' }; // Orange/Yellow - under allocated
+    }
+  };
   
   // Filter transactions by search term
   const filteredTransactions = transactions.filter(transaction =>
@@ -219,6 +243,25 @@ const Portfolio = () => {
       month: 'short',
       day: 'numeric',
     });
+  };
+
+  const formatHoldingPeriod = (days) => {
+    if (!days || days === 0) return '-';
+    
+    if (days < 30) {
+      return `${days}D`;
+    } else if (days < 365) {
+      const months = Math.floor(days / 30);
+      const remainingDays = days % 30;
+      return remainingDays > 0 ? `${months}M ${remainingDays}D` : `${months}M`;
+    } else {
+      const years = Math.floor(days / 365);
+      const months = Math.floor((days % 365) / 30);
+      if (months > 0) {
+        return `${years}Y ${months}M`;
+      }
+      return `${years}Y`;
+    }
   };
 
   const handleSort = (column) => {
@@ -239,19 +282,19 @@ const Portfolio = () => {
     sorted.sort((a, b) => {
       let aVal, bVal;
       
-      if (sortBy === 'invested_amount') {
-        aVal = a.invested_amount;
-        bVal = b.invested_amount;
-      } else if (sortBy === 'gain_loss') {
-        aVal = a.gain_loss;
-        bVal = b.gain_loss;
-      } else if (sortBy === 'gain_loss_pct') {
-        aVal = a.gain_loss_pct;
-        bVal = b.gain_loss_pct;
+      if (sortBy === 'unrealized_pnl') {
+        aVal = a.unrealized_pnl;
+        bVal = b.unrealized_pnl;
+      } else if (sortBy === 'unrealized_pnl_pct') {
+        aVal = a.unrealized_pnl_pct;
+        bVal = b.unrealized_pnl_pct;
       } else if (sortBy === 'pct_of_total') {
         // Calculate % of total for sorting
         aVal = totalAmount > 0 ? (a.invested_amount / totalAmount) * 100 : 0;
         bVal = totalAmount > 0 ? (b.invested_amount / totalAmount) * 100 : 0;
+      } else if (sortBy === 'holding_period_days') {
+        aVal = a.holding_period_days || 0;
+        bVal = b.holding_period_days || 0;
       }
       
       if (sortOrder === 'asc') {
@@ -338,92 +381,108 @@ const Portfolio = () => {
 
       {/* Portfolio Summary Cards */}
       {summary && (
-        <Grid container spacing={3} sx={{ mb: 3 }}>
-          <Grid item xs={12} sm={6} md={2.4}>
-            <Card sx={{ borderRadius: 3 }}>
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={12} sm={6} md={2}>
+            <Card sx={{ borderRadius: 3, height: '100%' }}>
               <CardContent>
-                <Typography color="text.secondary" gutterBottom>
+                <Typography color="text.secondary" gutterBottom variant="body2">
                   Total Invested
                 </Typography>
-                <Typography variant="h5" component="div" fontWeight="bold">
+                <Typography variant="h6" component="div" fontWeight="bold">
                   {formatCurrency(summary.total_invested)}
                 </Typography>
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={2.4}>
-            <Card sx={{ borderRadius: 3 }}>
+          <Grid item xs={12} sm={6} md={2}>
+            <Card sx={{ borderRadius: 3, height: '100%' }}>
               <CardContent>
-                <Typography color="text.secondary" gutterBottom>
+                <Typography color="text.secondary" gutterBottom variant="body2">
                   Current Value
                 </Typography>
-                <Typography variant="h5" component="div" fontWeight="bold">
+                <Typography variant="h6" component="div" fontWeight="bold">
                   {formatCurrency(summary.total_current_value)}
                 </Typography>
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={2.4}>
+          <Grid item xs={12} sm={6} md={2}>
             <Card sx={{ 
               borderRadius: 3,
-              bgcolor: summary.total_gain_loss >= 0 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)',
-              border: `1px solid ${summary.total_gain_loss >= 0 ? 'rgba(74, 222, 128, 0.3)' : 'rgba(248, 113, 113, 0.3)'}`,
+              height: '100%',
+              bgcolor: summary.total_realized_pnl >= 0 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)',
+              border: `1px solid ${summary.total_realized_pnl >= 0 ? 'rgba(74, 222, 128, 0.3)' : 'rgba(248, 113, 113, 0.3)'}`,
             }}>
               <CardContent>
-                <Typography color="text.secondary" gutterBottom>
-                  Total Gain/Loss
+                <Typography color="text.secondary" gutterBottom variant="body2">
+                  💰 Realized P/L
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
                   <Typography 
-                    variant="h5" 
+                    variant="h6" 
                     component="div"
                     fontWeight="bold"
-                    color={summary.total_gain_loss >= 0 ? 'success.main' : 'error.main'}
+                    color={summary.total_realized_pnl >= 0 ? 'success.main' : 'error.main'}
                   >
-                    {formatCurrency(summary.total_gain_loss)}
+                    {formatCurrency(summary.total_realized_pnl)}
                   </Typography>
-                  {summary.total_gain_loss >= 0 ? (
-                    <TrendingUpIcon color="success" sx={{ ml: 1 }} />
+                  {summary.total_realized_pnl >= 0 ? (
+                    <TrendingUpIcon color="success" sx={{ ml: 0.5, fontSize: 20 }} />
                   ) : (
-                    <TrendingDownIcon color="error" sx={{ ml: 1 }} />
+                    <TrendingDownIcon color="error" sx={{ ml: 0.5, fontSize: 20 }} />
                   )}
                 </Box>
+                <Typography variant="caption" color="text.secondary">
+                  Booked profit/loss
+                </Typography>
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={2.4}>
+          <Grid item xs={12} sm={6} md={2}>
             <Card sx={{ 
               borderRadius: 3,
-              bgcolor: summary.total_gain_loss_pct >= 0 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)',
-              border: `1px solid ${summary.total_gain_loss_pct >= 0 ? 'rgba(74, 222, 128, 0.3)' : 'rgba(248, 113, 113, 0.3)'}`,
+              height: '100%',
+              bgcolor: summary.total_unrealized_pnl >= 0 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)',
+              border: `1px solid ${summary.total_unrealized_pnl >= 0 ? 'rgba(74, 222, 128, 0.3)' : 'rgba(248, 113, 113, 0.3)'}`,
             }}>
               <CardContent>
-                <Typography color="text.secondary" gutterBottom>
-                  Return %
+                <Typography color="text.secondary" gutterBottom variant="body2">
+                  📈 Unrealized P/L
                 </Typography>
-                <Typography 
-                  variant="h5" 
-                  component="div"
-                  fontWeight="bold"
-                  color={summary.total_gain_loss_pct >= 0 ? 'success.main' : 'error.main'}
-                >
-                  {summary.total_gain_loss_pct.toFixed(2)}%
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Typography 
+                    variant="h6" 
+                    component="div"
+                    fontWeight="bold"
+                    color={summary.total_unrealized_pnl >= 0 ? 'success.main' : 'error.main'}
+                  >
+                    {formatCurrency(summary.total_unrealized_pnl)}
+                  </Typography>
+                  {summary.total_unrealized_pnl >= 0 ? (
+                    <TrendingUpIcon color="success" sx={{ ml: 0.5, fontSize: 20 }} />
+                  ) : (
+                    <TrendingDownIcon color="error" sx={{ ml: 0.5, fontSize: 20 }} />
+                  )}
+                </Box>
+                <Typography variant="caption" color="text.secondary">
+                  {summary.total_unrealized_pnl_pct >= 0 ? '+' : ''}{summary.total_unrealized_pnl_pct.toFixed(2)}%
                 </Typography>
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={2.4}>
+          <Grid item xs={12} sm={6} md={2}>
             <Card sx={{ 
               borderRadius: 3,
+              height: '100%',
               bgcolor: summary.portfolio_day_change_pct >= 0 ? 'rgba(74, 222, 128, 0.1)' : 'rgba(248, 113, 113, 0.1)',
               border: `1px solid ${summary.portfolio_day_change_pct >= 0 ? 'rgba(74, 222, 128, 0.3)' : 'rgba(248, 113, 113, 0.3)'}`,
             }}>
               <CardContent>
-                <Typography color="text.secondary" gutterBottom>
+                <Typography color="text.secondary" gutterBottom variant="body2">
                   1 Day Change
                 </Typography>
                 <Typography 
-                  variant="h5" 
+                  variant="h6" 
                   component="div"
                   fontWeight="bold"
                   color={summary.portfolio_day_change_pct >= 0 ? 'success.main' : 'error.main'}
@@ -433,14 +492,62 @@ const Portfolio = () => {
               </CardContent>
             </Card>
           </Grid>
+          <Grid item xs={12} sm={6} md={2}>
+            <Card sx={{ 
+              borderRadius: 3,
+              height: '100%',
+              bgcolor: 'rgba(139, 92, 246, 0.1)',
+              border: '1px solid rgba(139, 92, 246, 0.3)',
+            }}>
+              <CardContent>
+                <Typography color="text.secondary" gutterBottom variant="body2">
+                  📊 XIRR
+                </Typography>
+                <Typography 
+                  variant="h6" 
+                  component="div"
+                  fontWeight="bold"
+                  color={summary.xirr && summary.xirr >= 0 ? 'success.main' : 'error.main'}
+                >
+                  {summary.xirr !== null && summary.xirr !== undefined ? 
+                    `${summary.xirr >= 0 ? '+' : ''}${summary.xirr.toFixed(2)}%` : 
+                    'N/A'
+                  }
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Annualized return
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
         </Grid>
       )}
 
       <Paper sx={{ p: 3, borderRadius: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h5" component="h2" fontWeight="bold">
-            My Portfolio
-          </Typography>
+          <Box>
+            <Typography variant="h5" component="h2" fontWeight="bold">
+              My Portfolio
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 3, mt: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h6" color="primary" fontWeight="bold">
+                  {summary?.holdings?.length || 0}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Active Holdings
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h6" color="primary" fontWeight="bold">
+                  {transactions?.length || 0}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Total Transactions
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -482,52 +589,53 @@ const Portfolio = () => {
 
         {/* Current Holdings */}
         {currentTab === 0 && summary && (
-          <TableContainer>
-            <Table>
+          <TableContainer sx={{ maxHeight: 600 }}>
+            <Table stickyHeader>
               <TableHead>
                 <TableRow>
-                  <TableCell>Symbol</TableCell>
-                  <TableCell align="right">Quantity</TableCell>
-                  <TableCell align="right">Avg Price</TableCell>
-                  <TableCell align="right">Current Price</TableCell>
-                  <TableCell 
-                    align="right" 
-                    onClick={() => handleSort('invested_amount')}
-                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                      Invested {sortBy === 'invested_amount' && (sortOrder === 'asc' ? '↑' : '↓')}
-                    </Box>
-                  </TableCell>
+                  <TableCell sx={{ bgcolor: 'background.paper', fontWeight: 'bold' }}>Symbol</TableCell>
+                  <TableCell align="right" sx={{ bgcolor: 'background.paper', fontWeight: 'bold' }}>Quantity</TableCell>
+                  <TableCell align="right" sx={{ bgcolor: 'background.paper', fontWeight: 'bold' }}>Avg Price</TableCell>
+                  <TableCell align="right" sx={{ bgcolor: 'background.paper', fontWeight: 'bold' }}>Current Price</TableCell>
+                  <TableCell align="right" sx={{ bgcolor: 'background.paper', fontWeight: 'bold' }}>Invested</TableCell>
                   <TableCell 
                     align="right" 
                     onClick={() => handleSort('pct_of_total')}
-                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, bgcolor: 'background.paper', fontWeight: 'bold' }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
                       % of Total {sortBy === 'pct_of_total' && (sortOrder === 'asc' ? '↑' : '↓')}
                     </Box>
                   </TableCell>
-                  <TableCell align="right">Current Value</TableCell>
+                  <TableCell align="right" sx={{ bgcolor: 'background.paper', fontWeight: 'bold' }}>Current Value</TableCell>
                   <TableCell 
                     align="right" 
-                    onClick={() => handleSort('gain_loss')}
-                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                    onClick={() => handleSort('unrealized_pnl')}
+                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, bgcolor: 'background.paper', fontWeight: 'bold' }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                      Gain/Loss {sortBy === 'gain_loss' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      📈 Unrealized P/L {sortBy === 'unrealized_pnl' && (sortOrder === 'asc' ? '↑' : '↓')}
                     </Box>
                   </TableCell>
                   <TableCell 
                     align="right" 
-                    onClick={() => handleSort('gain_loss_pct')}
-                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                    onClick={() => handleSort('unrealized_pnl_pct')}
+                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, bgcolor: 'background.paper', fontWeight: 'bold' }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                      Return % {sortBy === 'gain_loss_pct' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      Return % {sortBy === 'unrealized_pnl_pct' && (sortOrder === 'asc' ? '↑' : '↓')}
                     </Box>
                   </TableCell>
-                  <TableCell align="right">1D Change %</TableCell>
+                  <TableCell align="right" sx={{ bgcolor: 'background.paper', fontWeight: 'bold' }}>1D Change %</TableCell>
+                  <TableCell 
+                    align="right" 
+                    onClick={() => handleSort('holding_period_days')}
+                    sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, bgcolor: 'background.paper', fontWeight: 'bold' }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                      Holding Period {sortBy === 'holding_period_days' && (sortOrder === 'asc' ? '↑' : '↓')}
+                    </Box>
+                  </TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -552,15 +660,20 @@ const Portfolio = () => {
                     </TableCell>
                     <TableCell align="right">
                       {totalAmount > 0 ? (
-                        <Chip
-                          label={`${((holding.invested_amount / totalAmount) * 100).toFixed(1)}%`}
-                          size="small"
-                          sx={{
-                            bgcolor: 'primary.main',
-                            color: 'white',
-                            fontWeight: 'bold'
-                          }}
-                        />
+                        (() => {
+                          const pct = (holding.invested_amount / totalAmount) * 100;
+                          const colorStyle = getAllocationColor(holding.market_cap, pct);
+                          return (
+                            <Chip
+                              label={`${pct.toFixed(1)}%`}
+                              size="small"
+                              sx={{
+                                ...colorStyle,
+                                fontWeight: 'bold'
+                              }}
+                            />
+                          );
+                        })()
                       ) : (
                         <Typography variant="body2" color="text.secondary">
                           -
@@ -570,16 +683,16 @@ const Portfolio = () => {
                     <TableCell align="right">{formatCurrency(holding.current_value)}</TableCell>
                     <TableCell align="right">
                       <Typography
-                        color={holding.gain_loss >= 0 ? 'success.main' : 'error.main'}
+                        color={holding.unrealized_pnl >= 0 ? 'success.main' : 'error.main'}
                         fontWeight="bold"
                       >
-                        {formatCurrency(holding.gain_loss)}
+                        {formatCurrency(holding.unrealized_pnl)}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Chip
-                        label={`${holding.gain_loss_pct >= 0 ? '+' : ''}${holding.gain_loss_pct.toFixed(2)}%`}
-                        color={holding.gain_loss_pct >= 0 ? 'success' : 'error'}
+                        label={`${holding.unrealized_pnl_pct >= 0 ? '+' : ''}${holding.unrealized_pnl_pct.toFixed(2)}%`}
+                        color={holding.unrealized_pnl_pct >= 0 ? 'success' : 'error'}
                         size="small"
                       />
                     </TableCell>
@@ -600,11 +713,22 @@ const Portfolio = () => {
                         </Typography>
                       )}
                     </TableCell>
+                    <TableCell align="right">
+                      <Chip
+                        label={formatHoldingPeriod(holding.holding_period_days)}
+                        size="small"
+                        sx={{
+                          bgcolor: '#3b82f6',
+                          color: 'white',
+                          fontWeight: 'bold'
+                        }}
+                      />
+                    </TableCell>
                   </TableRow>
                 ))}
               {getSortedHoldings().length === 0 && (
                   <TableRow>
-                  <TableCell colSpan={10} align="center">
+                  <TableCell colSpan={11} align="center">
                     <Typography variant="body1" color="text.secondary" sx={{ py: 3 }}>
                       {searchTerm ? `No holdings found for "${searchTerm}"` : 'No holdings yet. Add your first transaction to get started!'}
                     </Typography>

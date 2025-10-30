@@ -65,35 +65,65 @@ Investment Manager is a **full-stack web application** designed for tracking Ind
 
 ```
 backend/
-├── app.py              # Main Flask application & API routes
-├── utils.py            # Utility functions (validation, parsing, calculations)
-├── price_scraper.py    # Multi-source web scraper for stock prices
-├── nse_api.py          # NSE India API client (fallback)
-├── db_migrator.py      # Database migration tool
-└── requirements.txt    # Python dependencies
+├── app.py                      # Main Flask application & API routes
+├── config/                     # Environment-specific configurations
+│   ├── __init__.py            # Config loader (auto-detects env)
+│   ├── base.py                # Base configuration (shared)
+│   ├── development.py         # Development settings (SQLite)
+│   └── production.py          # Production settings (PostgreSQL)
+├── utils/                      # Utility functions (organized by purpose)
+│   ├── __init__.py
+│   ├── auth.py                # Authentication (Flask-Login setup)
+│   ├── validation.py          # Data validation
+│   ├── zones.py               # Zone calculations
+│   ├── holdings.py            # Holdings & P/L calculations
+│   └── helpers.py             # General helpers
+├── services/                   # External services
+│   ├── __init__.py
+│   ├── price_scraper.py       # Multi-source web scraper
+│   └── nse_api.py             # NSE India API client
+├── migrations/                 # Database migrations
+│   ├── db_migrator.py         # SQLite schema migrations
+│   └── migrate_to_postgres.py # SQLite to PostgreSQL migration
+├── instance/                   # SQLite database (development)
+├── requirements.txt            # Python dependencies
+└── venv/                       # Virtual environment
 ```
 
 ### Core Modules
 
 #### 1. **app.py** - Main Application
-- **Flask app initialization** with CORS
-- **Database models** (Stock, PortfolioTransaction, PortfolioSettings)
-- **API routes** (22 endpoints organized by feature)
-- **Business logic** for portfolio calculations and analytics
+- **Flask app initialization** with CORS, Flask-Login, Rate Limiter
+- **Database models** (Stock, PortfolioTransaction, PortfolioSettings, User)
+- **API routes** (25+ endpoints organized by feature)
+- **Authentication** endpoints (login, logout, check)
+- **Business logic** for portfolio calculations, P/L tracking, and analytics
 
-#### 2. **utils.py** - Shared Utilities
-**Functions:**
-- `parse_zone()` - Parse price zone strings ("250-300" → (250.0, 300.0))
-- `calculate_holdings()` - Compute current holdings from transactions
-- `validate_transaction_data()` - Validate transaction inputs
-- `is_in_zone()` - Check if price is in/near a zone
-- `format_refresh_response()` - Standardize price refresh responses
-- `clean_symbol()` - Normalize stock symbols
+#### 2. **config/** - Configuration Management
+**Modules:**
+- `base.py` - Shared configuration (SECRET_KEY, DEBUG, CORS, etc.)
+- `development.py` - SQLite, local development settings
+- `production.py` - PostgreSQL, cloud deployment settings
+- Auto-detection via `FLASK_ENV` environment variable
 
-**Why:** Eliminates code duplication across app.py endpoints
+**Why:** Clean separation of dev/prod configuration, environment-based switching
 
-#### 3. **price_scraper.py** - Price Fetching
-**PriceScraper Class:**
+#### 3. **utils/** - Shared Utilities (Organized Package)
+**Modules:**
+- `auth.py` - `init_auth()`, `api_login_required()`, `verify_credentials()`
+- `holdings.py` - `calculate_holdings()` with realized/unrealized P/L
+- `zones.py` - `parse_zone()`, `is_in_zone()` for price zone logic
+- `validation.py` - `validate_transaction_data()` for input validation
+- `helpers.py` - `clean_symbol()`, `format_refresh_response()`, `normalize_symbol()`
+
+**Why:** Modular organization, eliminates code duplication, clear responsibilities
+
+#### 4. **services/** - External Services
+**Modules:**
+- `price_scraper.py` - Multi-source scraping with fallbacks
+- `nse_api.py` - NSE India API client
+
+**PriceScraper Features:**
 - Multi-source scraping with fallbacks
 - Robust price extraction using regex patterns
 - Browser-like headers to avoid blocking

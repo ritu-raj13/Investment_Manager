@@ -430,21 +430,28 @@ Get portfolio summary with current holdings and P&L.
       "current_price": 2750.50,
       "invested_amount": 26000.00,
       "current_value": 27505.00,
-      "gain_loss": 1505.00,
-      "gain_loss_pct": 5.79,
-      "day_change_pct": 1.25
+      "realized_pnl": 500.00,
+      "unrealized_pnl": 1505.00,
+      "unrealized_pnl_pct": 5.79,
+      "day_change_pct": 1.25,
+      "market_cap": "Large"
     }
   ],
   "total_invested": 26000.00,
   "total_current_value": 27505.00,
-  "total_gain_loss": 1505.00,
-  "total_gain_loss_pct": 5.79,
+  "total_realized_pnl": 500.00,
+  "total_unrealized_pnl": 1505.00,
+  "total_unrealized_pnl_pct": 5.79,
+  "total_pnl": 2005.00,
   "portfolio_day_change_pct": 0.95
 }
 ```
 
 **Calculations:**
 - `avg_price` = invested_amount / quantity
+- `realized_pnl` = Total profit/loss from SELL transactions (based on avg cost)
+- `unrealized_pnl` = current_value - invested_amount (paper gains/losses)
+- `total_pnl` = total_realized_pnl + total_unrealized_pnl
 - `current_value` = quantity × current_price
 - `gain_loss` = current_value - invested_amount
 - `gain_loss_pct` = (gain_loss / invested_amount) × 100

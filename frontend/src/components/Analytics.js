@@ -73,14 +73,24 @@ const Analytics = () => {
       // Get sector from stocks (we need to add it to the holdings response or use a workaround)
       const sector = holding.sector || 'Other';
       if (!sectorMap[sector]) {
-        sectorMap[sector] = 0;
+        sectorMap[sector] = {
+          value: 0,
+          stocks: []
+        };
       }
-      sectorMap[sector] += holding.invested_amount;
+      sectorMap[sector].value += holding.invested_amount;
+      sectorMap[sector].stocks.push({
+        symbol: holding.symbol.replace('.NS', '').replace('.BO', ''),
+        name: holding.name,
+        amount: holding.invested_amount
+      });
     });
 
-    return Object.entries(sectorMap).map(([sector, value]) => ({
+    return Object.entries(sectorMap).map(([sector, data]) => ({
       name: sector,
-      value: value
+      value: data.value,
+      count: data.stocks.length,
+      stocks: data.stocks.sort((a, b) => b.amount - a.amount)
     })).sort((a, b) => b.value - a.value);
   };
 
@@ -91,18 +101,59 @@ const Analytics = () => {
     data.holdings.forEach(holding => {
       const marketCap = holding.market_cap || 'Unknown';
       if (!marketCapMap[marketCap]) {
-        marketCapMap[marketCap] = 0;
+        marketCapMap[marketCap] = {
+          value: 0,
+          stocks: []
+        };
       }
-      marketCapMap[marketCap] += holding.invested_amount;
+      marketCapMap[marketCap].value += holding.invested_amount;
+      marketCapMap[marketCap].stocks.push({
+        symbol: holding.symbol.replace('.NS', '').replace('.BO', ''),
+        name: holding.name,
+        amount: holding.invested_amount
+      });
     });
 
-    return Object.entries(marketCapMap).map(([marketCap, value]) => ({
+    return Object.entries(marketCapMap).map(([marketCap, data]) => ({
       name: marketCap,
-      value: value
+      value: data.value,
+      count: data.stocks.length,
+      stocks: data.stocks.sort((a, b) => b.amount - a.amount)
     })).sort((a, b) => b.value - a.value);
   };
 
   const COLORS = ['#60a5fa', '#4ade80', '#fbbf24', '#f87171', '#a78bfa', '#ec4899', '#14b8a6', '#f97316'];
+
+  // Custom tooltip for allocation charts
+  const CustomAllocationTooltip = ({ active, payload }) => {
+    if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      
+      return (
+        <Box
+          sx={{
+            backgroundColor: '#1e293b',
+            border: '2px solid #475569',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+            minWidth: '200px'
+          }}
+        >
+          <Typography variant="body1" fontWeight="bold" sx={{ color: '#ffffff', mb: 0.5 }}>
+            {data.name}
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#94a3b8', mb: 0.5 }}>
+            {formatCurrency(data.value)}
+          </Typography>
+          <Typography variant="body2" fontWeight="bold" sx={{ color: '#60a5fa' }}>
+            📊 {data.count} {data.count === 1 ? 'Stock' : 'Stocks'}
+          </Typography>
+        </Box>
+      );
+    }
+    return null;
+  };
 
   if (loading) {
     return (
@@ -569,19 +620,7 @@ const Analytics = () => {
                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                         ))}
                       </Pie>
-                      <RechartsTooltip 
-                        contentStyle={{ 
-                          backgroundColor: '#1e293b', 
-                          border: '1px solid #475569',
-                          borderRadius: '8px',
-                          color: '#ffffff',
-                          padding: '12px',
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-                        }}
-                        labelStyle={{ color: '#ffffff', fontWeight: 'bold', marginBottom: '4px' }}
-                        itemStyle={{ color: '#e2e8f0' }}
-                        formatter={(value) => formatCurrency(value)}
-                      />
+                      <RechartsTooltip content={<CustomAllocationTooltip />} />
                     </PieChart>
                   </ResponsiveContainer>
                   <Box sx={{ mt: 2, textAlign: 'center' }}>
@@ -624,19 +663,7 @@ const Analytics = () => {
                           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                         ))}
                       </Pie>
-                      <RechartsTooltip 
-                        contentStyle={{ 
-                          backgroundColor: '#1e293b', 
-                          border: '1px solid #475569',
-                          borderRadius: '8px',
-                          color: '#ffffff',
-                          padding: '12px',
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-                        }}
-                        labelStyle={{ color: '#ffffff', fontWeight: 'bold', marginBottom: '4px' }}
-                        itemStyle={{ color: '#e2e8f0' }}
-                        formatter={(value) => formatCurrency(value)}
-                      />
+                      <RechartsTooltip content={<CustomAllocationTooltip />} />
                     </PieChart>
                   </ResponsiveContainer>
                   <Box sx={{ mt: 2, textAlign: 'center' }}>
@@ -656,46 +683,6 @@ const Analytics = () => {
           </Grid>
         </Grid>
       )}
-
-      {/* Quick Stats */}
-      <Grid container spacing={2} sx={{ mt: 2 }}>
-        <Grid item xs={12} sm={4}>
-          <Card sx={{ borderRadius: 2 }}>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography variant="h4" fontWeight="bold" color="primary">
-                {stocks_tracked}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Stocks Tracked
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={4}>
-          <Card sx={{ borderRadius: 2 }}>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography variant="h4" fontWeight="bold" color="primary">
-                {portfolio_metrics.holdings_count}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Active Holdings
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={4}>
-          <Card sx={{ borderRadius: 2 }}>
-            <CardContent sx={{ textAlign: 'center' }}>
-              <Typography variant="h4" fontWeight="bold" color="primary">
-                {total_transactions}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Total Transactions
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
     </Box>
   );
 };
