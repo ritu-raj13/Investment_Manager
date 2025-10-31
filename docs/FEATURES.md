@@ -10,6 +10,8 @@
   - [XIRR Calculation](#xirr-extended-internal-rate-of-return)
 - [Portfolio Allocation Color Coding](#portfolio-allocation-color-coding)
 - [Analytics Dashboard](#analytics-dashboard)
+- [Portfolio Health](#portfolio-health)
+- [Recommendations](#recommendations)
 - [Stock Tracking](#stock-tracking)
 - [Alert System](#alert-system)
 - [FAQs](#faqs)
@@ -328,34 +330,164 @@ The **% of Total** column uses color coding to indicate if a stock's allocation 
 
 ## Analytics Dashboard
 
-### Action Items
-- Stocks requiring attention based on price zones
-- Categories:
-  - **In Buy Zone**: Stocks at or below target buy price
-  - **In Sell Zone**: Stocks at or above target sell price
-  - **Near Buy Zone**: Within ±3% of buy price
-  - **Near Sell Zone**: Within ±3% of sell price
+### Performance Charts
 
-### Pie Charts
+#### Portfolio Value Comparison
+- Bar chart showing Invested vs. Current Value
+- Visual comparison of portfolio growth
 
-#### Sector Allocation
-- Visual breakdown of portfolio by sector
-- **Hover Tooltip Shows**:
-  - Sector name
-  - Total invested amount
-  - **Number of stocks** in that sector
+#### Sector Allocation (Investment)
+- Pie chart showing investment breakdown by sector
+- **Hover Tooltip**: Sector name and invested amount
 
-#### Market Cap Allocation
-- Visual breakdown by market capitalization
-- **Hover Tooltip Shows**:
-  - Market cap category (Large/Mid/Small/Micro)
-  - Total invested amount
-  - **Number of stocks** in that category
+#### Market Cap Allocation (Investment)
+- Pie chart showing investment breakdown by market cap
+- **Hover Tooltip**: Market cap category and invested amount
+
+### Stock Distribution
+
+#### Number of Stocks by Sector
+- Bar chart showing stock count across sectors
+- Helps identify sector diversification
+
+#### Number of Stocks by Market Cap
+- Bar chart showing stock count by market cap category
+- Visualize large/mid/small cap distribution
 
 ### Top Performers
-- **Top Gainers**: Stocks with highest returns
-- **Top Losers**: Stocks with lowest returns
-- Shows symbol, name, and return percentage
+- **Top 5 Gainers**: Stocks with highest unrealized returns
+- **Top 5 Losers**: Stocks with lowest unrealized returns
+- Displays symbol, name, return %, and absolute gain/loss
+
+---
+
+## Portfolio Health
+
+### Purpose
+Comprehensive health assessment of your portfolio using risk and diversification metrics.
+
+### Overall Health Score (0-100)
+- **Composite metric** combining:
+  - Diversification (40% weight)
+  - Low concentration (30% weight)
+  - Balanced allocation (30% weight)
+- **Color-coded scoring**:
+  - Green (75-100): Excellent health
+  - Yellow (50-74): Good, room for improvement
+  - Red (0-49): Needs attention
+
+### Concentration Risk Analysis
+
+#### Top 3 Stocks Concentration
+- Percentage of portfolio in top 3 stocks
+- **Thresholds**:
+  - < 40%: Well diversified
+  - 40-70%: Moderate concentration
+  - > 70%: High risk, over-concentrated
+
+#### Top Sector Concentration
+- Percentage in largest sector
+- **Risk indicator**: > 50% = high sector risk
+
+#### Top Market Cap Concentration
+- Percentage in dominant market cap category
+- **Risk indicator**: > 70% = imbalanced allocation
+
+### Diversification Metrics
+
+#### Number of Stocks
+- Total unique holdings
+- Target: 10-15 stocks for good diversification
+
+#### Number of Sectors
+- Unique sectors represented
+- Target: 5-8 sectors
+
+#### Number of Market Caps
+- Unique market cap categories (Large/Mid/Small/Micro)
+- Target: 3-4 categories for balanced risk
+
+#### Herfindahl Index
+- Measures portfolio concentration (0-1)
+- Lower is better (closer to 0 = more diversified)
+- Thresholds:
+  - < 0.15: Well diversified
+  - 0.15-0.25: Moderately diversified
+  - > 0.25: Concentrated
+
+### Allocation Health Summary
+- **Over-Allocated Stocks**: Exceeding target % (red)
+- **Balanced Stocks**: At target % (green)
+- **Under-Allocated Stocks**: Below target % (orange)
+- Uses same thresholds as Portfolio page color coding
+
+---
+
+## Recommendations
+
+### Purpose
+Actionable suggestions for portfolio management, rebalancing, and price-based opportunities.
+
+### Alert Zones (Price-Based)
+Stocks currently in or near your defined buy/sell/average zones.
+
+#### In Buy Zone
+- Stocks at or below target buy price
+- **Action**: Consider buying
+
+#### In Sell Zone
+- Stocks at or above target sell price
+- **Action**: Consider selling
+
+#### In Average Zone
+- Stocks within average price range
+- **Action**: Consider averaging (adding more)
+
+#### Near Zones (Within ±3%)
+- Stocks approaching buy/sell/average zones
+- Early warning to prepare actions
+
+### Rebalancing Recommendations
+
+#### Stocks to Reduce
+- Over-allocated stocks (% above target + 0.5%)
+- Shows:
+  - Current % vs. Target %
+  - Excess % and amount to reduce
+  - Market cap category
+- **Table format** with actionable amounts
+
+#### Stocks to Add
+- Under-allocated stocks (% below target)
+- **Priority indicators**:
+  - Highlighted if stock is also in buy zone
+  - Sorted by: buy zone stocks first, then by deficit %
+- Shows:
+  - Current % vs. Target %
+  - Deficit % and amount to add
+  - Market cap category
+
+#### Sector Rebalancing Insights
+- Identifies overweight/underweight sectors
+- **Guidelines**:
+  - > 40%: Highly concentrated, diversify
+  - > 25%: Moderate concentration, monitor
+  - < 5%: Underweight, consider increasing
+- Shows sector %, number of stocks, and recommendations
+
+#### Market Cap Rebalancing Insights
+- Analyzes large/mid/small cap distribution
+- **Target ranges**:
+  - Large Cap: 50-65%
+  - Mid Cap: 25-35%
+  - Small/Micro Cap: 10-20%
+- Provides recommendations to balance portfolio
+
+### Benefits
+- **Integrate price and allocation**: See both zone alerts and rebalancing needs
+- **Prioritize actions**: Buy zone stocks highlighted in rebalancing
+- **Actionable amounts**: Exact ₹ amounts to add/reduce
+- **Context-aware**: Sector and market cap level guidance
 
 ---
 
@@ -394,7 +526,7 @@ Near Average Zone: avg_max × 1.03 / avg_min × 0.97
 ### Recommendations
 - Buy/sell recommendations based on current price vs. zones
 - Notifications for stocks requiring action
-- Analytics page highlights actionable stocks
+- **See [Recommendations](#recommendations) page** for complete alert zones and actionable suggestions
 
 ---
 
@@ -440,10 +572,22 @@ Near Average Zone: avg_max × 1.03 / avg_min × 0.97
 - **Search functionality** for quick stock lookup
 
 ### Analytics Page
-- Removed redundant statistics (moved to Portfolio page)
-- Enhanced tooltips with stock counts
-- Clean, focused layout on actionable insights
-- Visual charts for quick portfolio analysis
+- Performance visualization with 5 charts
+- Top gainers and losers display
+- Clean, focused layout on data insights
+- Investment and stock count distribution
+
+### Health Page (NEW)
+- Overall health score (0-100) with gauge
+- Concentration risk breakdown
+- Diversification metrics
+- Allocation health summary
+
+### Recommendations Page (NEW)
+- Price zone alerts (in/near buy/sell/average zones)
+- Rebalancing suggestions (stocks to add/reduce)
+- Sector and market cap insights
+- Integrated actionable recommendations
 
 ---
 
@@ -536,5 +680,156 @@ See [FUTURE_FEATURES.md](FUTURE_FEATURES.md) for planned features and improvemen
 
 ---
 
-*Last Updated: October 30, 2025*
+## User-Configurable Portfolio Settings
+
+### Portfolio Configuration (Settings Page)
+
+Navigate to **Settings > Portfolio Configuration** to customize your portfolio allocation thresholds and preferences.
+
+#### Configurable Parameters
+
+| Setting | Description | Default Value | Range |
+|---------|-------------|---------------|-------|
+| **Total Portfolio Target Amount** | Target total portfolio value for % allocation calculations | ₹0 | Any positive number |
+| **Large Cap Max %** | Maximum allowed allocation per Large Cap stock | 50% | 0-100% |
+| **Mid Cap Max %** | Maximum allowed allocation per Mid Cap stock | 30% | 0-100% |
+| **Small Cap Max %** | Maximum allowed allocation per Small Cap stock | 25% | 0-100% |
+| **Micro Cap Max %** | Maximum allowed allocation per Micro Cap stock | 15% | 0-100% |
+| **Maximum % per Sector** | Maximum allowed allocation for any single sector | 20% | 0-100% |
+
+#### How These Settings Work
+
+1. **Total Portfolio Amount**:
+   - Used to calculate the "% of Total" column in Holdings view
+   - Determines allocation percentages for each stock
+   - Must be set in Settings (no longer editable from Portfolio page)
+
+2. **Market Cap Allocation Limits**:
+   - System checks if any market cap category exceeds its configured maximum
+   - Triggers alerts on Recommendations page when limits are breached
+   - Used by rebalancing engine to suggest portfolio adjustments
+   - Each stock's allocation is color-coded based on these thresholds
+
+3. **Sector Allocation Limit**:
+   - Prevents over-concentration in any single sector
+   - Recommendations page shows alert if any sector exceeds this limit
+   - Helps maintain diversification across industries
+
+#### Example Configuration
+
+**Conservative Portfolio:**
+- Large Cap: 50%
+- Mid Cap: 30%
+- Small Cap: 20%
+- Micro Cap: 10%
+- Sector Max: 20%
+
+**Aggressive Portfolio:**
+- Large Cap: 40%
+- Mid Cap: 35%
+- Small Cap: 30%
+- Micro Cap: 20%
+- Sector Max: 25%
+
+#### Applying Changes
+
+1. Navigate to **Settings** tab
+2. Update desired values in **Portfolio Configuration** section
+3. Click **Save Configuration**
+4. System will reload to apply new thresholds
+5. All calculations (rebalancing, alerts, color coding) will use your custom values
+
+---
+
+## Recommendations Page Organization
+
+The Recommendations page is organized into **Alert Cards** at the top and **Detailed Sections** below.
+
+### Alert Cards (Summary View)
+
+Two main alert cards provide at-a-glance status:
+
+#### 1. Price Zone Alerts Card
+Shows count of stocks in or near your defined price zones:
+- **Sell Alerts**: Holdings reaching sell zones
+- **Average Alerts**: Holdings at averaging opportunities  
+- **Buy Alerts**: Watching stocks at buy prices
+
+#### 2. Rebalancing Alerts Card
+Shows portfolio allocation issues:
+- **Sector Alerts**: Number of over-allocated sectors (>max sector %)
+- **Market Cap Alerts**: Number of over-allocated market cap categories
+
+**Color Coding:**
+- 🟢 **Green**: All balanced, no action needed
+- 🟠 **Orange/Yellow**: Alerts present, review recommended
+
+### Detailed Sections
+
+#### Price Zone Alert Details
+Expandable section showing:
+- **In Buy Zone**: Watching stocks currently at buy prices
+- **Near Buy Zone**: Watching stocks within 3% of buy zone
+- **In Sell Zone**: Holdings at sell target prices
+- **Near Sell Zone**: Holdings within 3% of sell zone  
+- **In Average Zone**: Holdings at averaging price ranges
+- **Near Average Zone**: Holdings approaching average zones
+
+**Alert Logic:**
+- **Buy Zones**: Only shown for WATCHING stocks (not holdings)
+- **Sell/Average Zones**: Only shown for HOLDINGS (not watching stocks)
+
+#### Rebalancing Details
+Expandable accordions for:
+
+1. **Stocks to Reduce**
+   - Over-allocated individual stocks
+   - Exceeds threshold + 0.5% green buffer
+   - Table shows current vs target allocation
+
+2. **Stocks to Add**
+   - Under-allocated stocks
+   - Below recommended threshold
+   - Prioritizes stocks in buy zones
+
+3. **Sector Rebalancing Insights**
+   - Sectors exceeding max sector % (from Settings)
+   - Over-allocated, balanced, or under-allocated status
+   - Specific recommendations per sector
+
+4. **Market Cap Rebalancing Insights**
+   - Market cap categories exceeding thresholds (from Settings)
+   - Uses your configured max % values
+   - Shows excess allocation and reduction needed
+
+---
+
+## Recent Improvements (October 2025)
+
+### Configuration Management
+- ✅ Centralized portfolio settings in Settings page
+- ✅ User-configurable allocation thresholds
+- ✅ Removed redundant Total Portfolio Amount from Portfolio page
+- ✅ All calculations dynamically use user-configured values
+
+### Recommendations UI Overhaul
+- ✅ Combined alert cards for better overview
+- ✅ Equal-priority section headers
+- ✅ Expandable detail sections for better organization
+- ✅ Clear visual hierarchy
+
+### Database Organization
+- ✅ Consolidated to single database location (`instance/investment_manager.db`)
+- ✅ No duplicate database files
+- ✅ Proper Flask instance folder usage
+
+### Alert Logic Improvements
+- ✅ Buy zones only shown for watching stocks
+- ✅ Sell/average zones only for holdings
+- ✅ Dynamic threshold checking based on user settings
+- ✅ Proper status indicators (overweight/balanced/underweight)
+
+---
+
+*Last Updated: October 31, 2025*
 

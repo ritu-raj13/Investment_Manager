@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -16,6 +16,9 @@ import {
   DialogContentText,
   DialogActions,
   CircularProgress,
+  TextField,
+  InputAdornment,
+  Divider,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadIcon from '@mui/icons-material/Upload';
@@ -23,12 +26,23 @@ import BackupIcon from '@mui/icons-material/Backup';
 import RestoreIcon from '@mui/icons-material/Restore';
 import StorageIcon from '@mui/icons-material/Storage';
 import DescriptionIcon from '@mui/icons-material/Description';
-import { dataAPI } from '../services/api';
+import SettingsIcon from '@mui/icons-material/Settings';
+import SaveIcon from '@mui/icons-material/Save';
+import { dataAPI, portfolioAPI } from '../services/api';
 
 const Settings = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [loading, setLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ open: false, action: null, file: null });
+  const [config, setConfig] = useState({
+    total_amount: 0,
+    max_large_cap_pct: 50,
+    max_mid_cap_pct: 30,
+    max_small_cap_pct: 25,
+    max_micro_cap_pct: 15,
+    max_sector_pct: 20,
+  });
+  const [configLoading, setConfigLoading] = useState(false);
 
   const showSnackbar = (message, severity = 'success') => {
     setSnackbar({ open: true, message, severity });
@@ -36,6 +50,48 @@ const Settings = () => {
 
   const handleCloseSnackbar = () => {
     setSnackbar({ ...snackbar, open: false });
+  };
+
+  // Load configuration on mount
+  useEffect(() => {
+    loadConfiguration();
+  }, []);
+
+  const loadConfiguration = async () => {
+    try {
+      setConfigLoading(true);
+      const response = await portfolioAPI.getSettings();
+      setConfig({
+        total_amount: response.data.total_amount || 0,
+        max_large_cap_pct: response.data.max_large_cap_pct || 50,
+        max_mid_cap_pct: response.data.max_mid_cap_pct || 30,
+        max_small_cap_pct: response.data.max_small_cap_pct || 25,
+        max_micro_cap_pct: response.data.max_micro_cap_pct || 15,
+        max_sector_pct: response.data.max_sector_pct || 20,
+      });
+    } catch (error) {
+      showSnackbar('Failed to load configuration', 'error');
+    } finally {
+      setConfigLoading(false);
+    }
+  };
+
+  const handleConfigChange = (field, value) => {
+    setConfig((prev) => ({ ...prev, [field]: parseFloat(value) || 0 }));
+  };
+
+  const handleSaveConfiguration = async () => {
+    try {
+      setConfigLoading(true);
+      await portfolioAPI.updateSettings(config);
+      showSnackbar('Configuration saved successfully!', 'success');
+      // Reload to reflect changes
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (error) {
+      showSnackbar('Failed to save configuration', 'error');
+    } finally {
+      setConfigLoading(false);
+    }
   };
 
   const downloadBlob = (blob, filename) => {
@@ -147,6 +203,159 @@ const Settings = () => {
       {/* Header */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h4" component="h1" fontWeight="bold" gutterBottom>
+          Settings
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Configure portfolio thresholds and manage your data
+        </Typography>
+      </Box>
+
+      {/* Configuration Section */}
+      <Paper sx={{ p: 3, mb: 4, borderRadius: 3, bgcolor: 'primary.dark' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+          <SettingsIcon sx={{ mr: 1, fontSize: 28 }} />
+          <Typography variant="h5" fontWeight="bold">
+            Portfolio Configuration
+          </Typography>
+        </Box>
+
+        {configLoading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+            <CircularProgress />
+          </Box>
+        ) : (
+          <Grid container spacing={3}>
+            {/* Total Portfolio Amount */}
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Total Portfolio Target Amount"
+                type="number"
+                value={config.total_amount}
+                onChange={(e) => handleConfigChange('total_amount', e.target.value)}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                }}
+                helperText="Target total portfolio amount for percentage calculations"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Maximum Allocation % by Market Cap
+                </Typography>
+              </Divider>
+            </Grid>
+
+            {/* Market Cap Allocations */}
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="Large Cap Max %"
+                type="number"
+                value={config.max_large_cap_pct}
+                onChange={(e) => handleConfigChange('max_large_cap_pct', e.target.value)}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                inputProps={{ min: 0, max: 100, step: 1 }}
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="Mid Cap Max %"
+                type="number"
+                value={config.max_mid_cap_pct}
+                onChange={(e) => handleConfigChange('max_mid_cap_pct', e.target.value)}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                inputProps={{ min: 0, max: 100, step: 1 }}
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="Small Cap Max %"
+                type="number"
+                value={config.max_small_cap_pct}
+                onChange={(e) => handleConfigChange('max_small_cap_pct', e.target.value)}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                inputProps={{ min: 0, max: 100, step: 1 }}
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="Micro Cap Max %"
+                type="number"
+                value={config.max_micro_cap_pct}
+                onChange={(e) => handleConfigChange('max_micro_cap_pct', e.target.value)}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                inputProps={{ min: 0, max: 100, step: 1 }}
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Sector Allocation
+                </Typography>
+              </Divider>
+            </Grid>
+
+            {/* Sector Allocation */}
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Maximum % per Sector"
+                type="number"
+                value={config.max_sector_pct}
+                onChange={(e) => handleConfigChange('max_sector_pct', e.target.value)}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                inputProps={{ min: 0, max: 100, step: 1 }}
+                helperText="Maximum allocation allowed for any single sector"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            {/* Save Button */}
+            <Grid item xs={12}>
+              <Button
+                variant="contained"
+                color="success"
+                size="large"
+                startIcon={<SaveIcon />}
+                onClick={handleSaveConfiguration}
+                disabled={configLoading}
+                sx={{ mt: 2 }}
+              >
+                Save Configuration
+              </Button>
+            </Grid>
+          </Grid>
+        )}
+      </Paper>
+
+      {/* Data Management Header */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h5" fontWeight="bold" gutterBottom>
           Data Management
         </Typography>
         <Typography variant="body2" color="text.secondary">

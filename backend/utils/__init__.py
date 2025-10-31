@@ -7,6 +7,13 @@ from .zones import parse_zone, is_in_zone
 from .holdings import calculate_holdings
 from .helpers import format_refresh_response, clean_symbol
 from .xirr import calculate_portfolio_xirr
+from .portfolio_health import (
+    calculate_concentration_risk,
+    calculate_diversification_score,
+    calculate_allocation_health,
+    calculate_overall_health_score
+)
+from .rebalancing import get_rebalancing_suggestions
 
 __all__ = [
     'User',
@@ -20,5 +27,10 @@ __all__ = [
     'format_refresh_response',
     'clean_symbol',
     'calculate_portfolio_xirr',
+    'calculate_concentration_risk',
+    'calculate_diversification_score',
+    'calculate_allocation_health',
+    'calculate_overall_health_score',
+    'get_rebalancing_suggestions',
 ]
 

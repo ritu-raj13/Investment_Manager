@@ -48,8 +48,6 @@ const Portfolio = () => {
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [totalAmount, setTotalAmount] = useState(0);
-  const [editingTotalAmount, setEditingTotalAmount] = useState(false);
-  const [tempTotalAmount, setTempTotalAmount] = useState('');
   const [formData, setFormData] = useState({
     stock_symbol: '',
     stock_name: '',
@@ -88,20 +86,8 @@ const Portfolio = () => {
     try {
       const response = await portfolioAPI.getSettings();
       setTotalAmount(response.data.total_amount || 0);
-      setTempTotalAmount(response.data.total_amount || 0);
     } catch (error) {
       showSnackbar('Error fetching portfolio settings', 'error');
-    }
-  };
-
-  const handleSaveTotalAmount = async () => {
-    try {
-      await portfolioAPI.updateSettings({ total_amount: parseFloat(tempTotalAmount) || 0 });
-      setTotalAmount(parseFloat(tempTotalAmount) || 0);
-      setEditingTotalAmount(false);
-      showSnackbar('Total amount updated successfully', 'success');
-    } catch (error) {
-      showSnackbar('Error updating total amount', 'error');
     }
   };
 
@@ -309,76 +295,6 @@ const Portfolio = () => {
 
   return (
     <Box>
-      {/* Total Amount Setting */}
-      <Box sx={{ mb: 3 }}>
-        <Card sx={{ borderRadius: 3, bgcolor: 'rgba(96, 165, 250, 0.05)', border: '1px solid rgba(96, 165, 250, 0.2)' }}>
-          <CardContent sx={{ py: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Typography variant="body1" fontWeight="bold">
-                  Total Portfolio Amount (for % calculation):
-                </Typography>
-                {editingTotalAmount ? (
-                  <TextField
-                    size="small"
-                    type="number"
-                    value={tempTotalAmount}
-                    onChange={(e) => setTempTotalAmount(e.target.value)}
-                    placeholder="Enter total amount"
-                    sx={{ width: 200 }}
-                    InputProps={{
-                      startAdornment: <Typography sx={{ mr: 1 }}>₹</Typography>
-                    }}
-                  />
-                ) : (
-                  <Chip
-                    label={`₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
-                    color="primary"
-                    sx={{ fontSize: '1rem', fontWeight: 'bold', px: 1 }}
-                  />
-                )}
-              </Box>
-              <Box>
-                {editingTotalAmount ? (
-                  <>
-                    <Button
-                      variant="contained"
-                      size="small"
-                      onClick={handleSaveTotalAmount}
-                      sx={{ mr: 1 }}
-                    >
-                      Save
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      onClick={() => {
-                        setEditingTotalAmount(false);
-                        setTempTotalAmount(totalAmount);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </>
-                ) : (
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<EditIcon />}
-                    onClick={() => setEditingTotalAmount(true)}
-                  >
-                    Edit
-                  </Button>
-                )}
-              </Box>
-            </Box>
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              This amount is used to calculate the % allocation of each stock in your portfolio
-            </Typography>
-          </CardContent>
-        </Card>
-      </Box>
-
       {/* Portfolio Summary Cards */}
       {summary && (
         <Grid container spacing={2} sx={{ mb: 3 }}>

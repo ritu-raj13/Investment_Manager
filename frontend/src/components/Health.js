@@ -1,0 +1,501 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Box,
+  Paper,
+  Typography,
+  Card,
+  CardContent,
+  Grid,
+  CircularProgress,
+  Alert,
+  LinearProgress,
+  Chip,
+  Divider,
+} from '@mui/material';
+import {
+  Circle as CircleIcon,
+  TrendingUp as TrendingUpIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckCircleIcon,
+} from '@mui/icons-material';
+import { healthAPI } from '../services/api';
+
+const Health = () => {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetchHealthData();
+  }, []);
+
+  const fetchHealthData = async () => {
+    try {
+      setLoading(true);
+      const response = await healthAPI.getDashboard();
+      setData(response.data);
+      setError(null);
+    } catch (err) {
+      setError('Failed to load health data');
+      console.error('Health error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatCurrency = (value) => {
+    return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  const getHealthColor = (score) => {
+    if (score >= 75) return '#22c55e'; // Green
+    if (score >= 50) return '#eab308'; // Yellow
+    return '#ef4444'; // Red
+  };
+
+  const getHealthLabel = (score) => {
+    if (score >= 75) return 'Excellent';
+    if (score >= 50) return 'Good';
+    return 'Needs Attention';
+  };
+
+  const getHealthIcon = (score) => {
+    if (score >= 75) return <CheckCircleIcon sx={{ color: '#22c55e', fontSize: 40 }} />;
+    if (score >= 50) return <TrendingUpIcon sx={{ color: '#eab308', fontSize: 40 }} />;
+    return <WarningIcon sx={{ color: '#ef4444', fontSize: 40 }} />;
+  };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error">{error}</Alert>
+      </Box>
+    );
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const {
+    overall_health_score,
+    concentration_risk,
+    diversification,
+    allocation_health,
+    total_invested,
+    holdings_count,
+  } = data;
+
+  return (
+    <Box>
+      {/* Header */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h4" component="h1" fontWeight="bold" gutterBottom>
+          Portfolio Health
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Comprehensive analysis of your portfolio's health and risk metrics
+        </Typography>
+      </Box>
+
+      {/* Overall Health Score Card */}
+      <Paper sx={{ p: 4, mb: 3, borderRadius: 3, textAlign: 'center', bgcolor: 'rgba(96, 165, 250, 0.05)' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 2 }}>
+          {getHealthIcon(overall_health_score)}
+        </Box>
+        <Typography variant="h3" fontWeight="bold" sx={{ color: getHealthColor(overall_health_score), mb: 1 }}>
+          {overall_health_score}/100
+        </Typography>
+        <Typography variant="h6" gutterBottom>
+          {getHealthLabel(overall_health_score)}
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Overall Portfolio Health Score
+        </Typography>
+        
+        {/* Health Score Bar */}
+        <Box sx={{ mt: 3, maxWidth: 600, mx: 'auto' }}>
+          <LinearProgress
+            variant="determinate"
+            value={overall_health_score}
+            sx={{
+              height: 12,
+              borderRadius: 6,
+              bgcolor: 'rgba(255, 255, 255, 0.1)',
+              '& .MuiLinearProgress-bar': {
+                bgcolor: getHealthColor(overall_health_score),
+                borderRadius: 6,
+              },
+            }}
+          />
+        </Box>
+
+        {/* Quick Stats */}
+        <Grid container spacing={2} sx={{ mt: 3, maxWidth: 600, mx: 'auto' }}>
+          <Grid item xs={6}>
+            <Typography variant="caption" color="text.secondary">
+              Total Holdings
+            </Typography>
+            <Typography variant="h6" fontWeight="bold">
+              {holdings_count}
+            </Typography>
+          </Grid>
+          <Grid item xs={6}>
+            <Typography variant="caption" color="text.secondary">
+              Total Invested
+            </Typography>
+            <Typography variant="h6" fontWeight="bold">
+              {formatCurrency(total_invested)}
+            </Typography>
+          </Grid>
+        </Grid>
+      </Paper>
+
+      {/* Detailed Metrics */}
+      <Grid container spacing={3}>
+        {/* Concentration Risk */}
+        <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+            <Typography variant="h6" fontWeight="bold" gutterBottom>
+              Concentration Risk
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Measures portfolio concentration in top holdings
+            </Typography>
+
+            {/* Stock Concentration */}
+            <Box sx={{ mb: 3 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="body2" fontWeight="medium">
+                  Top 3 Stocks
+                </Typography>
+                <Typography variant="body2" fontWeight="bold" color={concentration_risk.stock_concentration > 60 ? 'error' : 'primary'}>
+                  {concentration_risk.stock_concentration}%
+                </Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={Math.min(concentration_risk.stock_concentration, 100)}
+                sx={{
+                  height: 8,
+                  borderRadius: 4,
+                  bgcolor: 'rgba(255, 255, 255, 0.1)',
+                  '& .MuiLinearProgress-bar': {
+                    bgcolor: concentration_risk.stock_concentration > 60 ? '#ef4444' : '#60a5fa',
+                    borderRadius: 4,
+                  },
+                }}
+              />
+              {concentration_risk.top_3_stocks && concentration_risk.top_3_stocks.length > 0 && (
+                <Box sx={{ mt: 1 }}>
+                  {concentration_risk.top_3_stocks.map((stock, idx) => (
+                    <Box key={idx} sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        {stock.symbol}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {stock.percentage.toFixed(1)}%
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Sector Concentration */}
+            <Box sx={{ mb: 3 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="body2" fontWeight="medium">
+                  Top Sector
+                </Typography>
+                <Typography variant="body2" fontWeight="bold" color={concentration_risk.sector_concentration > 50 ? 'error' : 'primary'}>
+                  {concentration_risk.sector_concentration}%
+                </Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={Math.min(concentration_risk.sector_concentration, 100)}
+                sx={{
+                  height: 8,
+                  borderRadius: 4,
+                  bgcolor: 'rgba(255, 255, 255, 0.1)',
+                  '& .MuiLinearProgress-bar': {
+                    bgcolor: concentration_risk.sector_concentration > 50 ? '#ef4444' : '#4ade80',
+                    borderRadius: 4,
+                  },
+                }}
+              />
+              {concentration_risk.top_sector && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                  {concentration_risk.top_sector.name}: {formatCurrency(concentration_risk.top_sector.invested_amount)}
+                </Typography>
+              )}
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Market Cap Concentration */}
+            <Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="body2" fontWeight="medium">
+                  Top Market Cap
+                </Typography>
+                <Typography variant="body2" fontWeight="bold" color={concentration_risk.market_cap_concentration > 70 ? 'error' : 'primary'}>
+                  {concentration_risk.market_cap_concentration}%
+                </Typography>
+              </Box>
+              <LinearProgress
+                variant="determinate"
+                value={Math.min(concentration_risk.market_cap_concentration, 100)}
+                sx={{
+                  height: 8,
+                  borderRadius: 4,
+                  bgcolor: 'rgba(255, 255, 255, 0.1)',
+                  '& .MuiLinearProgress-bar': {
+                    bgcolor: concentration_risk.market_cap_concentration > 70 ? '#ef4444' : '#fbbf24',
+                    borderRadius: 4,
+                  },
+                }}
+              />
+              {concentration_risk.top_market_cap && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                  {concentration_risk.top_market_cap.name}: {formatCurrency(concentration_risk.top_market_cap.invested_amount)}
+                </Typography>
+              )}
+            </Box>
+
+            {/* Risk Assessment */}
+            <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(96, 165, 250, 0.1)', borderRadius: 2 }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                Risk Assessment:
+              </Typography>
+              {concentration_risk.stock_concentration > 60 ? (
+                <Typography variant="body2" color="error">
+                  ⚠️ High concentration in top stocks - consider diversifying
+                </Typography>
+              ) : concentration_risk.stock_concentration > 40 ? (
+                <Typography variant="body2" color="warning.main">
+                  ⚡ Moderate concentration - monitor closely
+                </Typography>
+              ) : (
+                <Typography variant="body2" color="success.main">
+                  ✓ Well diversified across stocks
+                </Typography>
+              )}
+            </Box>
+          </Paper>
+        </Grid>
+
+        {/* Diversification Metrics */}
+        <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+            <Typography variant="h6" fontWeight="bold" gutterBottom>
+              Diversification Metrics
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Measures portfolio spread across stocks, sectors, and market caps
+            </Typography>
+
+            {/* Diversification Score */}
+            <Box sx={{ textAlign: 'center', mb: 3, p: 3, bgcolor: 'rgba(74, 222, 128, 0.1)', borderRadius: 2 }}>
+              <Typography variant="h2" fontWeight="bold" color="success.main">
+                {diversification.diversification_score}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Diversification Score (0-100)
+              </Typography>
+            </Box>
+
+            {/* Metrics Grid */}
+            <Grid container spacing={2}>
+              <Grid item xs={4}>
+                <Card sx={{ textAlign: 'center', bgcolor: 'rgba(96, 165, 250, 0.1)' }}>
+                  <CardContent>
+                    <Typography variant="h4" fontWeight="bold" color="primary">
+                      {diversification.num_stocks}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Stocks
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={4}>
+                <Card sx={{ textAlign: 'center', bgcolor: 'rgba(251, 191, 36, 0.1)' }}>
+                  <CardContent>
+                    <Typography variant="h4" fontWeight="bold" color="warning.main">
+                      {diversification.num_sectors}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Sectors
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={4}>
+                <Card sx={{ textAlign: 'center', bgcolor: 'rgba(248, 113, 113, 0.1)' }}>
+                  <CardContent>
+                    <Typography variant="h4" fontWeight="bold" color="error.main">
+                      {diversification.num_market_caps}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Market Caps
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+
+            {/* Herfindahl Index */}
+            <Box sx={{ mt: 3 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="body2" fontWeight="medium">
+                  Herfindahl Index
+                </Typography>
+                <Chip
+                  label={diversification.herfindahl_index}
+                  size="small"
+                  color={diversification.herfindahl_index < 0.15 ? 'success' : diversification.herfindahl_index < 0.25 ? 'warning' : 'error'}
+                />
+              </Box>
+              <Typography variant="caption" color="text.secondary">
+                Lower is better (0 = perfect diversification, 1 = fully concentrated)
+              </Typography>
+            </Box>
+
+            {/* Recommendations */}
+            <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(74, 222, 128, 0.1)', borderRadius: 2 }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                Recommendations:
+              </Typography>
+              {diversification.num_stocks < 10 && (
+                <Typography variant="body2" sx={{ mb: 0.5 }}>
+                  📈 Consider adding more stocks (target: 10-15)
+                </Typography>
+              )}
+              {diversification.num_sectors < 5 && (
+                <Typography variant="body2" sx={{ mb: 0.5 }}>
+                  🎯 Diversify across more sectors (target: 5-8)
+                </Typography>
+              )}
+              {diversification.num_market_caps < 3 && (
+                <Typography variant="body2" sx={{ mb: 0.5 }}>
+                  💼 Include different market caps (Large/Mid/Small)
+                </Typography>
+              )}
+              {diversification.num_stocks >= 10 && diversification.num_sectors >= 5 && (
+                <Typography variant="body2" color="success.main">
+                  ✓ Well diversified portfolio!
+                </Typography>
+              )}
+            </Box>
+          </Paper>
+        </Grid>
+
+        {/* Allocation Health */}
+        <Grid item xs={12}>
+          <Paper sx={{ p: 3, borderRadius: 3 }}>
+            <Typography variant="h6" fontWeight="bold" gutterBottom>
+              Allocation Health
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Stock allocation status based on market cap thresholds
+            </Typography>
+
+            <Grid container spacing={3}>
+              {/* Over-allocated */}
+              <Grid item xs={12} sm={4}>
+                <Box sx={{ textAlign: 'center', p: 3, bgcolor: 'rgba(248, 113, 113, 0.1)', borderRadius: 2 }}>
+                  <CircleIcon sx={{ color: '#ef4444', fontSize: 48, mb: 1 }} />
+                  <Typography variant="h3" fontWeight="bold" color="error">
+                    {allocation_health.over_allocated}
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" gutterBottom>
+                    Over-Allocated
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Above target allocation
+                  </Typography>
+                </Box>
+              </Grid>
+
+              {/* Balanced */}
+              <Grid item xs={12} sm={4}>
+                <Box sx={{ textAlign: 'center', p: 3, bgcolor: 'rgba(74, 222, 128, 0.1)', borderRadius: 2 }}>
+                  <CircleIcon sx={{ color: '#22c55e', fontSize: 48, mb: 1 }} />
+                  <Typography variant="h3" fontWeight="bold" color="success.main">
+                    {allocation_health.balanced}
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" gutterBottom>
+                    Balanced
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    At target allocation
+                  </Typography>
+                </Box>
+              </Grid>
+
+              {/* Under-allocated */}
+              <Grid item xs={12} sm={4}>
+                <Box sx={{ textAlign: 'center', p: 3, bgcolor: 'rgba(251, 191, 36, 0.1)', borderRadius: 2 }}>
+                  <CircleIcon sx={{ color: '#eab308', fontSize: 48, mb: 1 }} />
+                  <Typography variant="h3" fontWeight="bold" color="warning.main">
+                    {allocation_health.under_allocated}
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" gutterBottom>
+                    Under-Allocated
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Below target allocation
+                  </Typography>
+                </Box>
+              </Grid>
+            </Grid>
+
+            {/* Allocation Targets Info */}
+            <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(96, 165, 250, 0.05)', borderRadius: 2 }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1, fontWeight: 'bold' }}>
+                Target Allocations by Market Cap:
+              </Typography>
+              <Grid container spacing={1}>
+                <Grid item xs={12} sm={3}>
+                  <Typography variant="caption">
+                    🔵 Large Cap: 5% (green: 5-5.5%)
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={3}>
+                  <Typography variant="caption">
+                    🟠 Mid Cap: 3% (green: 3-3.5%)
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={3}>
+                  <Typography variant="caption">
+                    🟡 Small Cap: 2% (green: 2-2.5%)
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={3}>
+                  <Typography variant="caption">
+                    ⚫ Micro Cap: 2% (green: 2-2.5%)
+                  </Typography>
+                </Grid>
+              </Grid>
+            </Box>
+          </Paper>
+        </Grid>
+      </Grid>
+    </Box>
+  );
+};
+
+export default Health;
+

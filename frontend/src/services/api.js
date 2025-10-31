@@ -63,6 +63,16 @@ export const analyticsAPI = {
   getDashboard: () => api.get('/analytics/dashboard'),
 };
 
+// Health API
+export const healthAPI = {
+  getDashboard: () => api.get('/health/dashboard'),
+};
+
+// Recommendations API
+export const recommendationsAPI = {
+  getDashboard: () => api.get('/recommendations/dashboard'),
+};
+
 // Import/Export & Backup/Restore API
 export const dataAPI = {
   // Export
