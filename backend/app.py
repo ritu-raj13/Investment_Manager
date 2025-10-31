@@ -128,12 +128,22 @@ class PortfolioSettings(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     total_amount = db.Column(db.Float, default=0.0)  # Manual total portfolio amount for % calculation
+    max_large_cap_pct = db.Column(db.Float, default=50.0)  # Max % allocation for Large Cap
+    max_mid_cap_pct = db.Column(db.Float, default=30.0)  # Max % allocation for Mid Cap
+    max_small_cap_pct = db.Column(db.Float, default=25.0)  # Max % allocation for Small Cap
+    max_micro_cap_pct = db.Column(db.Float, default=15.0)  # Max % allocation for Micro Cap
+    max_sector_pct = db.Column(db.Float, default=20.0)  # Max % allocation per sector
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def to_dict(self):
         return {
             'id': self.id,
             'total_amount': self.total_amount,
+            'max_large_cap_pct': self.max_large_cap_pct,
+            'max_mid_cap_pct': self.max_mid_cap_pct,
+            'max_small_cap_pct': self.max_small_cap_pct,
+            'max_micro_cap_pct': self.max_micro_cap_pct,
+            'max_sector_pct': self.max_sector_pct,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
@@ -904,7 +914,7 @@ def get_portfolio_settings():
 @app.route('/api/portfolio/settings', methods=['PUT'])
 @api_login_required
 def update_portfolio_settings():
-    """Update portfolio settings (total amount)"""
+    """Update portfolio settings (total amount and allocation thresholds)"""
     data = request.get_json()
     settings = PortfolioSettings.query.first()
     
@@ -912,9 +922,21 @@ def update_portfolio_settings():
         settings = PortfolioSettings()
         db.session.add(settings)
     
+    # Update all configurable fields
     if 'total_amount' in data:
         settings.total_amount = float(data['total_amount'])
-        settings.updated_at = datetime.utcnow()
+    if 'max_large_cap_pct' in data:
+        settings.max_large_cap_pct = float(data['max_large_cap_pct'])
+    if 'max_mid_cap_pct' in data:
+        settings.max_mid_cap_pct = float(data['max_mid_cap_pct'])
+    if 'max_small_cap_pct' in data:
+        settings.max_small_cap_pct = float(data['max_small_cap_pct'])
+    if 'max_micro_cap_pct' in data:
+        settings.max_micro_cap_pct = float(data['max_micro_cap_pct'])
+    if 'max_sector_pct' in data:
+        settings.max_sector_pct = float(data['max_sector_pct'])
+    
+    settings.updated_at = datetime.utcnow()
     
     db.session.commit()
     return jsonify(settings.to_dict())
@@ -1133,6 +1155,243 @@ def get_analytics_dashboard():
         })
     
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/health/dashboard', methods=['GET'])
+@api_login_required
+def get_health_dashboard():
+    """Get portfolio health metrics"""
+    try:
+        # Get all transactions and calculate holdings
+        transactions = PortfolioTransaction.query.all()
+        holdings_dict = calculate_holdings(transactions)
+        
+        # Get all stocks for additional info
+        stocks = Stock.query.all()
+        stocks_map = {}
+        for stock in stocks:
+            normalized = stock.symbol.replace('.NS', '').replace('.BO', '').upper()
+            stocks_map[normalized] = stock
+        
+        # Build holdings list with full details
+        holdings_list = []
+        total_invested = 0
+        
+        for symbol, holding in holdings_dict.items():
+            if holding['quantity'] > 0:
+                normalized_symbol = symbol.replace('.NS', '').replace('.BO', '').upper()
+                stock = stocks_map.get(normalized_symbol)
+                
+                holdings_list.append({
+                    'symbol': symbol,
+                    'name': stock.name if stock else '',
+                    'sector': stock.sector if stock else None,
+                    'market_cap': stock.market_cap if stock else None,
+                    'invested_amount': holding['invested_amount'],
+                    'quantity': holding['quantity'],
+                    'current_price': stock.current_price if stock else None
+                })
+                
+                total_invested += holding['invested_amount']
+        
+        # Calculate health metrics
+        from utils import (
+            calculate_concentration_risk,
+            calculate_diversification_score,
+            calculate_allocation_health,
+            calculate_overall_health_score
+        )
+        
+        concentration_risk = calculate_concentration_risk(holdings_list)
+        diversification = calculate_diversification_score(holdings_list)
+        allocation_health = calculate_allocation_health(holdings_list)
+        overall_health_score = calculate_overall_health_score(
+            concentration_risk,
+            diversification,
+            allocation_health
+        )
+        
+        return jsonify({
+            'overall_health_score': overall_health_score,
+            'concentration_risk': concentration_risk,
+            'diversification': diversification,
+            'allocation_health': allocation_health,
+            'total_invested': round(total_invested, 2),
+            'holdings_count': len(holdings_list)
+        })
+    
+    except Exception as e:
+        print(f"ERROR in get_health_dashboard: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/recommendations/dashboard', methods=['GET'])
+@api_login_required
+def get_recommendations_dashboard():
+    """Get rebalancing recommendations and alert zones"""
+    try:
+        # Get all stocks and transactions
+        stocks = Stock.query.all()
+        transactions = PortfolioTransaction.query.all()
+        
+        # Calculate holdings
+        holdings_dict = calculate_holdings(transactions)
+        
+        # Build holdings list with full details
+        stocks_map = {}
+        for stock in stocks:
+            normalized = stock.symbol.replace('.NS', '').replace('.BO', '').upper()
+            stocks_map[normalized] = stock
+        
+        holdings_list = []
+        total_invested = 0
+        
+        for symbol, holding in holdings_dict.items():
+            if holding['quantity'] > 0:
+                normalized_symbol = symbol.replace('.NS', '').replace('.BO', '').upper()
+                stock = stocks_map.get(normalized_symbol)
+                
+                holdings_list.append({
+                    'symbol': symbol,
+                    'name': stock.name if stock else '',
+                    'sector': stock.sector if stock else None,
+                    'market_cap': stock.market_cap if stock else None,
+                    'invested_amount': holding['invested_amount'],
+                    'quantity': holding['quantity'],
+                    'current_price': stock.current_price if stock else None
+                })
+                
+                total_invested += holding['invested_amount']
+        
+        # Get portfolio settings for thresholds
+        settings = PortfolioSettings.query.first()
+        
+        # Get rebalancing suggestions
+        from utils import get_rebalancing_suggestions
+        rebalancing = get_rebalancing_suggestions(holdings_list, stocks, total_invested, settings)
+        
+        # Get alert zone action items (moved from analytics)
+        holding_symbols_normalized = set(normalize_symbol(s) for s in holdings_dict.keys())
+        
+        action_items = {
+            'in_buy_zone': [],
+            'in_sell_zone': [],
+            'in_average_zone': [],
+            'near_buy_zone': [],
+            'near_sell_zone': [],
+            'near_average_zone': []
+        }
+        
+        for stock in stocks:
+            if not stock.current_price:
+                continue
+            
+            normalized_symbol = normalize_symbol(stock.symbol)
+            is_held = normalized_symbol in holding_symbols_normalized
+            
+            # Buy Zone - Only show if NOT held (watching stocks only)
+            if stock.buy_zone_price and not is_held:
+                buy_min, buy_max = parse_zone(stock.buy_zone_price)
+                if buy_max and stock.current_price <= buy_max:
+                    action_items['in_buy_zone'].append({
+                        'symbol': stock.symbol,
+                        'name': stock.name,
+                        'sector': stock.sector,
+                        'current_price': stock.current_price,
+                        'zone': stock.buy_zone_price,
+                        'is_held': is_held
+                    })
+                elif buy_max and stock.current_price <= buy_max * 1.03:
+                    distance_pct = ((stock.current_price - buy_max) / buy_max) * 100
+                    action_items['near_buy_zone'].append({
+                        'symbol': stock.symbol,
+                        'name': stock.name,
+                        'sector': stock.sector,
+                        'current_price': stock.current_price,
+                        'zone': stock.buy_zone_price,
+                        'distance_pct': distance_pct,
+                        'distance_type': 'above',
+                        'is_held': is_held
+                    })
+            
+            # Sell Zone - Only show if held (holdings only)
+            if stock.sell_zone_price and is_held:
+                sell_min, sell_max = parse_zone(stock.sell_zone_price)
+                if sell_min and stock.current_price >= sell_min:
+                    action_items['in_sell_zone'].append({
+                        'symbol': stock.symbol,
+                        'name': stock.name,
+                        'sector': stock.sector,
+                        'current_price': stock.current_price,
+                        'zone': stock.sell_zone_price,
+                        'is_held': is_held
+                    })
+                elif sell_min and stock.current_price >= sell_min * 0.97:
+                    distance_pct = ((sell_min - stock.current_price) / sell_min) * 100
+                    action_items['near_sell_zone'].append({
+                        'symbol': stock.symbol,
+                        'name': stock.name,
+                        'sector': stock.sector,
+                        'current_price': stock.current_price,
+                        'zone': stock.sell_zone_price,
+                        'distance_pct': distance_pct,
+                        'distance_type': 'below',
+                        'is_held': is_held
+                    })
+            
+            # Average Zone - Only show if held (holdings only)
+            if stock.average_zone_price and is_held:
+                avg_min, avg_max = parse_zone(stock.average_zone_price)
+                if avg_min and avg_max and avg_min <= stock.current_price <= avg_max:
+                    action_items['in_average_zone'].append({
+                        'symbol': stock.symbol,
+                        'name': stock.name,
+                        'sector': stock.sector,
+                        'current_price': stock.current_price,
+                        'zone': stock.average_zone_price,
+                        'is_held': is_held
+                    })
+                elif avg_max and stock.current_price <= avg_max * 1.03 and stock.current_price > avg_max:
+                    distance_pct = ((stock.current_price - avg_max) / avg_max) * 100
+                    action_items['near_average_zone'].append({
+                        'symbol': stock.symbol,
+                        'name': stock.name,
+                        'sector': stock.sector,
+                        'current_price': stock.current_price,
+                        'zone': stock.average_zone_price,
+                        'distance_pct': distance_pct,
+                        'distance_type': 'above',
+                        'is_held': is_held
+                    })
+                elif avg_min and stock.current_price >= avg_min * 0.97 and stock.current_price < avg_min:
+                    distance_pct = ((avg_min - stock.current_price) / avg_min) * 100
+                    action_items['near_average_zone'].append({
+                        'symbol': stock.symbol,
+                        'name': stock.name,
+                        'sector': stock.sector,
+                        'current_price': stock.current_price,
+                        'zone': stock.average_zone_price,
+                        'distance_pct': distance_pct,
+                        'distance_type': 'below',
+                        'is_held': is_held
+                    })
+        
+        # Count action items
+        total_action_items = sum(len(items) for items in action_items.values())
+        
+        return jsonify({
+            'rebalancing': rebalancing,
+            'action_items': action_items,
+            'action_items_count': total_action_items
+        })
+    
+    except Exception as e:
+        print(f"ERROR in get_recommendations_dashboard: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 

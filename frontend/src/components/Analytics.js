@@ -124,7 +124,7 @@ const Analytics = () => {
 
   const COLORS = ['#60a5fa', '#4ade80', '#fbbf24', '#f87171', '#a78bfa', '#ec4899', '#14b8a6', '#f97316'];
 
-  // Custom tooltip for allocation charts
+  // Custom tooltip for allocation charts (investment value)
   const CustomAllocationTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
@@ -137,22 +137,63 @@ const Analytics = () => {
             borderRadius: '8px',
             padding: '12px 16px',
             boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-            minWidth: '200px'
+            minWidth: '180px'
           }}
         >
           <Typography variant="body1" fontWeight="bold" sx={{ color: '#ffffff', mb: 0.5 }}>
             {data.name}
           </Typography>
-          <Typography variant="body2" sx={{ color: '#94a3b8', mb: 0.5 }}>
+          <Typography variant="body2" sx={{ color: '#94a3b8' }}>
             {formatCurrency(data.value)}
-          </Typography>
-          <Typography variant="body2" fontWeight="bold" sx={{ color: '#60a5fa' }}>
-            📊 {data.count} {data.count === 1 ? 'Stock' : 'Stocks'}
           </Typography>
         </Box>
       );
     }
     return null;
+  };
+
+  // Get stock count data by sector
+  const getStockCountBySectorData = () => {
+    if (!data.holdings || data.holdings.length === 0) return [];
+    
+    const sectorMap = {};
+    data.holdings.forEach(holding => {
+      const sector = holding.sector || 'Other';
+      if (!sectorMap[sector]) {
+        sectorMap[sector] = 0;
+      }
+      sectorMap[sector] += 1;
+    });
+
+    return Object.entries(sectorMap)
+      .map(([sector, count]) => ({
+        name: sector,
+        count: count,
+        fill: COLORS[Object.keys(sectorMap).indexOf(sector) % COLORS.length]
+      }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  // Get stock count data by market cap
+  const getStockCountByMarketCapData = () => {
+    if (!data.holdings || data.holdings.length === 0) return [];
+    
+    const marketCapMap = {};
+    data.holdings.forEach(holding => {
+      const marketCap = holding.market_cap || 'Unknown';
+      if (!marketCapMap[marketCap]) {
+        marketCapMap[marketCap] = 0;
+      }
+      marketCapMap[marketCap] += 1;
+    });
+
+    return Object.entries(marketCapMap)
+      .map(([marketCap, count]) => ({
+        name: marketCap,
+        count: count,
+        fill: COLORS[Object.keys(marketCapMap).indexOf(marketCap) % COLORS.length]
+      }))
+      .sort((a, b) => b.count - a.count);
   };
 
   if (loading) {
@@ -175,7 +216,7 @@ const Analytics = () => {
     return null;
   }
 
-  const { portfolio_metrics, action_items, action_items_count, stocks_tracked, total_transactions, top_gainers, top_losers } = data;
+  const { portfolio_metrics, stocks_tracked, total_transactions, top_gainers, top_losers } = data;
 
   return (
     <Box>
@@ -185,279 +226,9 @@ const Analytics = () => {
           Analytics Dashboard
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Portfolio insights and actionable recommendations
+          Portfolio performance visualization and insights
         </Typography>
       </Box>
-
-      {/* Action Items Card - Focused on insights, not duplicate metrics */}
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
-        <Card sx={{ 
-          borderRadius: 3, 
-          bgcolor: 'warning.dark', 
-          color: 'white',
-          minWidth: 300,
-          boxShadow: 3
-        }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-              <Typography variant="h6" fontWeight="bold" sx={{ color: 'white' }}>
-                Action Items
-              </Typography>
-              <NotificationsActiveIcon sx={{ fontSize: 32 }} />
-            </Box>
-            <Typography variant="h3" fontWeight="bold" gutterBottom>
-              {action_items_count}
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>
-              {action_items_count > 0 ? 'Stocks require attention' : 'No actions needed'}
-            </Typography>
-          </CardContent>
-        </Card>
-      </Box>
-
-      {/* Action Items Section */}
-      {action_items_count > 0 && (
-        <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-            <NotificationsActiveIcon color="warning" sx={{ mr: 1 }} />
-            <Typography variant="h6" fontWeight="bold">
-              Stocks Requiring Action
-            </Typography>
-            <Tooltip title="Stocks currently in or near your defined buy/sell/average zones">
-              <IconButton size="small" sx={{ ml: 1 }}>
-                <InfoOutlinedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Box>
-
-          <Grid container spacing={2}>
-            {/* In Buy Zone */}
-            {action_items.in_buy_zone.length > 0 && (
-              <Grid item xs={12} md={6}>
-                <Card sx={{ borderRadius: 2, bgcolor: 'success.dark', color: 'white' }}>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <ShoppingCartIcon sx={{ mr: 1 }} />
-                      <Typography variant="h6" fontWeight="bold">
-                        In Buy Zone ({action_items.in_buy_zone.length})
-                      </Typography>
-                    </Box>
-                    <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
-                      {action_items.in_buy_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.in_buy_zone.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                            {stock.name} • {stock.sector}
-                          </Typography>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                            <Typography variant="caption">
-                              Current: ₹{stock.current_price}
-                            </Typography>
-                            <Typography variant="caption">
-                              Zone: ₹{stock.zone}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      ))}
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            )}
-
-            {/* In Sell Zone */}
-            {action_items.in_sell_zone.length > 0 && (
-              <Grid item xs={12} md={6}>
-                <Card sx={{ borderRadius: 2, bgcolor: 'error.dark', color: 'white' }}>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <SellIcon sx={{ mr: 1 }} />
-                      <Typography variant="h6" fontWeight="bold">
-                        In Sell Zone ({action_items.in_sell_zone.length})
-                      </Typography>
-                    </Box>
-                    <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
-                      {action_items.in_sell_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.in_sell_zone.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                            {stock.name} • {stock.sector}
-                          </Typography>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                            <Typography variant="caption">
-                              Current: ₹{stock.current_price}
-                            </Typography>
-                            <Typography variant="caption">
-                              Zone: ₹{stock.zone}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      ))}
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            )}
-
-            {/* Near Buy Zone */}
-            {action_items.near_buy_zone.length > 0 && (
-              <Grid item xs={12} md={6}>
-                <Card sx={{ borderRadius: 2 }}>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <TrendingDownIcon color="success" sx={{ mr: 1 }} />
-                      <Typography variant="h6" fontWeight="bold">
-                        Near Buy Zone ({action_items.near_buy_zone.length})
-                      </Typography>
-                    </Box>
-                    <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
-                      {action_items.near_buy_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.near_buy_zone.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {stock.name}
-                          </Typography>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                            <Typography variant="caption">
-                              ₹{stock.current_price}
-                            </Typography>
-                            <Chip 
-                              label={`${stock.distance_pct.toFixed(1)}% above zone`}
-                              size="small"
-                              color="success"
-                              variant="outlined"
-                            />
-                          </Box>
-                        </Box>
-                      ))}
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            )}
-
-            {/* Near Sell Zone */}
-            {action_items.near_sell_zone.length > 0 && (
-              <Grid item xs={12} md={6}>
-                <Card sx={{ borderRadius: 2 }}>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <TrendingUpIcon color="error" sx={{ mr: 1 }} />
-                      <Typography variant="h6" fontWeight="bold">
-                        Near Sell Zone ({action_items.near_sell_zone.length})
-                      </Typography>
-                    </Box>
-                    <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
-                      {action_items.near_sell_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.near_sell_zone.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {stock.name}
-                          </Typography>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                            <Typography variant="caption">
-                              ₹{stock.current_price}
-                            </Typography>
-                            <Chip 
-                              label={`${stock.distance_pct.toFixed(1)}% below zone`}
-                              size="small"
-                              color="error"
-                              variant="outlined"
-                            />
-                          </Box>
-                        </Box>
-                      ))}
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            )}
-
-            {/* In Average Zone */}
-            {action_items.in_average_zone && action_items.in_average_zone.length > 0 && (
-              <Grid item xs={12} md={6}>
-                <Card sx={{ borderRadius: 2, bgcolor: 'warning.dark', color: 'white' }}>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <AddShoppingCartIcon sx={{ mr: 1 }} />
-                      <Typography variant="h6" fontWeight="bold">
-                        In Average Zone ({action_items.in_average_zone.length})
-                      </Typography>
-                    </Box>
-                    <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
-                      {action_items.in_average_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.in_average_zone.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                            {stock.name} • {stock.sector}
-                          </Typography>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                            <Typography variant="caption">
-                              Current: ₹{stock.current_price}
-                            </Typography>
-                            <Typography variant="caption">
-                              Zone: ₹{stock.zone}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      ))}
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            )}
-
-            {/* Near Average Zone */}
-            {action_items.near_average_zone && action_items.near_average_zone.length > 0 && (
-              <Grid item xs={12} md={6}>
-                <Card sx={{ borderRadius: 2 }}>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                      <AddShoppingCartIcon color="warning" sx={{ mr: 1 }} />
-                      <Typography variant="h6" fontWeight="bold">
-                        Near Average Zone ({action_items.near_average_zone.length})
-                      </Typography>
-                    </Box>
-                    <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
-                      {action_items.near_average_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.near_average_zone.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {stock.name}
-                          </Typography>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                            <Typography variant="caption">
-                              ₹{stock.current_price}
-                            </Typography>
-                            <Chip 
-                              label={`${stock.distance_pct.toFixed(1)}% ${stock.distance_type} zone`}
-                              size="small"
-                              color="warning"
-                              variant="outlined"
-                            />
-                          </Box>
-                        </Box>
-                      ))}
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            )}
-          </Grid>
-        </Paper>
-      )}
 
       {/* Top Gainers and Losers */}
       {((top_gainers && top_gainers.length > 0) || (top_losers && top_losers.length > 0)) && (
@@ -554,134 +325,251 @@ const Analytics = () => {
         </Grid>
       )}
 
-      {/* Portfolio Charts */}
+      {/* Portfolio Charts Row 1: Investment Allocation */}
       {data.holdings && data.holdings.length > 0 && (
-        <Grid container spacing={3} sx={{ mt: 3, mb: 3 }}>
-          {/* Portfolio Value Comparison */}
-          <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
-              <Typography variant="h6" fontWeight="bold" gutterBottom>
-                Portfolio Value
-              </Typography>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={getPortfolioComparisonData()}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#444" />
-                  <XAxis dataKey="name" stroke="#888" />
-                  <YAxis stroke="#888" />
-                  <RechartsTooltip 
-                    contentStyle={{ 
-                      backgroundColor: '#1e293b', 
-                      border: '1px solid #475569',
-                      borderRadius: '8px',
-                      color: '#ffffff',
-                      padding: '12px',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-                    }}
-                    labelStyle={{ color: '#ffffff', fontWeight: 'bold', marginBottom: '4px' }}
-                    itemStyle={{ color: '#e2e8f0' }}
-                    formatter={(value) => formatCurrency(value)}
-                  />
-                  <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-                    {getPortfolioComparisonData().map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <Box sx={{ mt: 2, textAlign: 'center' }}>
-                <Typography variant="caption" color="text.secondary">
-                  Invested vs Current Value
+        <>
+          <Grid container spacing={3} sx={{ mt: 3, mb: 3 }}>
+            {/* Portfolio Value Comparison */}
+            <Grid item xs={12} md={4}>
+              <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                  Portfolio Value
                 </Typography>
-              </Box>
-            </Paper>
-          </Grid>
-
-          {/* Sector Allocation */}
-          <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
-              <Typography variant="h6" fontWeight="bold" gutterBottom>
-                Sector Allocation
-              </Typography>
-              {getSectorAllocationData().length > 0 ? (
-                <>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={getSectorAllocationData()}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({name, percent}) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {getSectorAllocationData().map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip content={<CustomAllocationTooltip />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <Box sx={{ mt: 2, textAlign: 'center' }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Investment by Sector
-                    </Typography>
-                  </Box>
-                </>
-              ) : (
-                <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Add sector info to stocks for allocation view
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={getPortfolioComparisonData()}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                    <XAxis dataKey="name" stroke="#888" />
+                    <YAxis stroke="#888" />
+                    <RechartsTooltip 
+                      contentStyle={{ 
+                        backgroundColor: '#1e293b', 
+                        border: '1px solid #475569',
+                        borderRadius: '8px',
+                        color: '#ffffff',
+                        padding: '12px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                      }}
+                      labelStyle={{ color: '#ffffff', fontWeight: 'bold', marginBottom: '4px' }}
+                      itemStyle={{ color: '#e2e8f0' }}
+                      formatter={(value) => formatCurrency(value)}
+                    />
+                    <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                      {getPortfolioComparisonData().map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <Box sx={{ mt: 2, textAlign: 'center' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Invested vs Current Value
                   </Typography>
                 </Box>
-              )}
-            </Paper>
-          </Grid>
+              </Paper>
+            </Grid>
 
-          {/* Market Cap Allocation */}
-          <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
-              <Typography variant="h6" fontWeight="bold" gutterBottom>
-                Market Cap Allocation
-              </Typography>
-              {getMarketCapAllocationData().length > 0 ? (
-                <>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={getMarketCapAllocationData()}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({name, percent}) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {getMarketCapAllocationData().map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip content={<CustomAllocationTooltip />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <Box sx={{ mt: 2, textAlign: 'center' }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Investment by Market Cap
+            {/* Sector Allocation (Investment) */}
+            <Grid item xs={12} md={4}>
+              <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                  Sector Allocation
+                </Typography>
+                {getSectorAllocationData().length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <PieChart>
+                        <Pie
+                          data={getSectorAllocationData()}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({name, percent}) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {getSectorAllocationData().map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip content={<CustomAllocationTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <Box sx={{ mt: 2, textAlign: 'center' }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Investment by Sector
+                      </Typography>
+                    </Box>
+                  </>
+                ) : (
+                  <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Add sector info to stocks for allocation view
                     </Typography>
                   </Box>
-                </>
-              ) : (
-                <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Add market cap to stocks for allocation view
-                  </Typography>
-                </Box>
-              )}
-            </Paper>
+                )}
+              </Paper>
+            </Grid>
+
+            {/* Market Cap Allocation (Investment) */}
+            <Grid item xs={12} md={4}>
+              <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                  Market Cap Allocation
+                </Typography>
+                {getMarketCapAllocationData().length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <PieChart>
+                        <Pie
+                          data={getMarketCapAllocationData()}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({name, percent}) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {getMarketCapAllocationData().map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip content={<CustomAllocationTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <Box sx={{ mt: 2, textAlign: 'center' }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Investment by Market Cap
+                      </Typography>
+                    </Box>
+                  </>
+                ) : (
+                  <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Add market cap to stocks for allocation view
+                    </Typography>
+                  </Box>
+                )}
+              </Paper>
+            </Grid>
           </Grid>
-        </Grid>
+
+          {/* Portfolio Charts Row 2: Stock Count Distribution */}
+          <Grid container spacing={3} sx={{ mb: 3 }}>
+            {/* Number of Stocks by Sector */}
+            <Grid item xs={12} md={6}>
+              <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                  Number of Stocks by Sector
+                </Typography>
+                {getStockCountBySectorData().length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={getStockCountBySectorData()}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                        <XAxis 
+                          dataKey="name" 
+                          stroke="#888"
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                          interval={0}
+                        />
+                        <YAxis stroke="#888" allowDecimals={false} />
+                        <RechartsTooltip 
+                          contentStyle={{ 
+                            backgroundColor: '#1e293b', 
+                            border: '1px solid #475569',
+                            borderRadius: '8px',
+                            color: '#ffffff',
+                            padding: '12px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                          }}
+                          labelStyle={{ color: '#ffffff', fontWeight: 'bold', marginBottom: '4px' }}
+                          itemStyle={{ color: '#e2e8f0' }}
+                          formatter={(value) => `${value} ${value === 1 ? 'stock' : 'stocks'}`}
+                        />
+                        <Bar dataKey="count" radius={[8, 8, 0, 0]}>
+                          {getStockCountBySectorData().map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <Box sx={{ mt: 2, textAlign: 'center' }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Stock distribution across sectors
+                      </Typography>
+                    </Box>
+                  </>
+                ) : (
+                  <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Add sector info to stocks for distribution view
+                    </Typography>
+                  </Box>
+                )}
+              </Paper>
+            </Grid>
+
+            {/* Number of Stocks by Market Cap */}
+            <Grid item xs={12} md={6}>
+              <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                  Number of Stocks by Market Cap
+                </Typography>
+                {getStockCountByMarketCapData().length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={getStockCountByMarketCapData()}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#444" />
+                        <XAxis 
+                          dataKey="name" 
+                          stroke="#888"
+                          angle={-45}
+                          textAnchor="end"
+                          height={80}
+                          interval={0}
+                        />
+                        <YAxis stroke="#888" allowDecimals={false} />
+                        <RechartsTooltip 
+                          contentStyle={{ 
+                            backgroundColor: '#1e293b', 
+                            border: '1px solid #475569',
+                            borderRadius: '8px',
+                            color: '#ffffff',
+                            padding: '12px',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+                          }}
+                          labelStyle={{ color: '#ffffff', fontWeight: 'bold', marginBottom: '4px' }}
+                          itemStyle={{ color: '#e2e8f0' }}
+                          formatter={(value) => `${value} ${value === 1 ? 'stock' : 'stocks'}`}
+                        />
+                        <Bar dataKey="count" radius={[8, 8, 0, 0]}>
+                          {getStockCountByMarketCapData().map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <Box sx={{ mt: 2, textAlign: 'center' }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Stock distribution by market capitalization
+                      </Typography>
+                    </Box>
+                  </>
+                ) : (
+                  <Box sx={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Add market cap to stocks for distribution view
+                    </Typography>
+                  </Box>
+                )}
+              </Paper>
+            </Grid>
+          </Grid>
+        </>
       )}
     </Box>
   );

@@ -557,4 +557,30 @@ This codebase follows best practices:
 
 ---
 
+## 🎯 Recent Updates (October 31, 2025)
+
+### User-Configurable Portfolio Settings
+- ✅ Centralized configuration in Settings page
+- ✅ Customize allocation thresholds per your investment strategy
+- ✅ Market Cap limits: Large (50%), Mid (30%), Small (25%), Micro (15%)
+- ✅ Sector diversification limit (20% per sector)
+- ✅ All calculations dynamically use your custom values
+
+### Recommendations & Health Pages
+- ✅ **Recommendations Tab**: Price zone alerts + rebalancing suggestions
+- ✅ **Health Tab**: Portfolio health metrics & concentration analysis
+- ✅ Expandable sections for detailed analysis
+- ✅ Smart alert filtering (buy zones for watching stocks, sell/average for holdings)
+
+### Enhanced Portfolio Features
+- ✅ FIFO-based holding period tracking
+- ✅ XIRR (annualized return) calculation
+- ✅ Realized P/L and Unrealized P/L separation
+- ✅ Color-coded allocation percentages
+- ✅ Sortable columns with default "% of Total" descending sort
+
+---
+
 **Built with ❤️ for smart investing**
+
+*Last updated: October 31, 2025*

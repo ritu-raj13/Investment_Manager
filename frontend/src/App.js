@@ -18,12 +18,16 @@ import {
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
+import FavoriteIcon from '@mui/icons-material/Favorite';
+import RecommendIcon from '@mui/icons-material/Recommend';
 import SettingsIcon from '@mui/icons-material/Settings';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import LogoutIcon from '@mui/icons-material/Logout';
 import StockTracking from './components/StockTracking';
 import Portfolio from './components/Portfolio';
 import Analytics from './components/Analytics';
+import Health from './components/Health';
+import Recommendations from './components/Recommendations';
 import Settings from './components/Settings';
 import Login from './components/Login';
 import { authAPI } from './services/api';
@@ -207,6 +211,8 @@ function App() {
             textColor="inherit"
             indicatorColor="secondary"
             sx={{ bgcolor: 'primary.dark' }}
+            variant="scrollable"
+            scrollButtons="auto"
           >
             <Tab 
               icon={<ShowChartIcon />} 
@@ -215,12 +221,22 @@ function App() {
             />
             <Tab 
               icon={<AccountBalanceWalletIcon />} 
-              label="My Portfolio" 
+              label="Portfolio" 
               iconPosition="start"
             />
             <Tab 
               icon={<AnalyticsIcon />} 
               label="Analytics"
+              iconPosition="start"
+            />
+            <Tab 
+              icon={<FavoriteIcon />} 
+              label="Health"
+              iconPosition="start"
+            />
+            <Tab 
+              icon={<RecommendIcon />} 
+              label="Recommendations"
               iconPosition="start"
             />
             <Tab 
@@ -235,7 +251,9 @@ function App() {
           {currentTab === 0 && <StockTracking />}
           {currentTab === 1 && <Portfolio />}
           {currentTab === 2 && <Analytics />}
-          {currentTab === 3 && <Settings />}
+          {currentTab === 3 && <Health />}
+          {currentTab === 4 && <Recommendations />}
+          {currentTab === 5 && <Settings />}
         </Container>
 
         {/* Back to Top Button */}

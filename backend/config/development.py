@@ -11,8 +11,11 @@ class DevelopmentConfig(Config):
     # Enable debug mode
     DEBUG = True
     
-    # SQLite for local development
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///investment_manager.db'
+    # SQLite for local development - use instance folder
+    # Flask automatically creates instance folder for app data
+    import os
+    basedir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+    SQLALCHEMY_DATABASE_URI = f'sqlite:///{os.path.join(basedir, "instance", "investment_manager.db")}'
     
     # Don't require HTTPS for cookies in development
     SESSION_COOKIE_SECURE = False
