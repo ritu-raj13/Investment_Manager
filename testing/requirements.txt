@@ -1,0 +1,9 @@
+# Testing Dependencies for Investment Manager
+
+# Core testing framework
+pytest==7.4.3
+pytest-flask==1.3.0
+
+# Test utilities
+requests==2.32.3
+

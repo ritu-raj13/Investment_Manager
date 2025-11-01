@@ -66,11 +66,130 @@ export const analyticsAPI = {
 // Health API
 export const healthAPI = {
   getDashboard: () => api.get('/health/dashboard'),
+  getFinancialHealth: () => api.get('/health/financial-health'), // Phase 3
 };
 
 // Recommendations API
 export const recommendationsAPI = {
   getDashboard: () => api.get('/recommendations/dashboard'),
+};
+
+// Dashboard API (new - Personal Finance Manager)
+export const dashboardAPI = {
+  getNetWorth: () => api.get('/dashboard/net-worth'),
+  getAssetAllocation: () => api.get('/dashboard/asset-allocation'),
+  getCashFlow: () => api.get('/dashboard/cash-flow'),
+  getSummary: () => api.get('/dashboard/summary'),
+  getUnifiedXIRR: () => api.get('/dashboard/unified-xirr'), // Phase 3
+};
+
+// Mutual Funds API
+export const mutualFundsAPI = {
+  // Schemes
+  getSchemes: () => api.get('/mutual-funds/schemes'),
+  createScheme: (data) => api.post('/mutual-funds/schemes', data),
+  updateScheme: (id, data) => api.put(`/mutual-funds/schemes/${id}`, data),
+  deleteScheme: (id) => api.delete(`/mutual-funds/schemes/${id}`),
+  
+  // Transactions
+  getTransactions: () => api.get('/mutual-funds/transactions'),
+  createTransaction: (data) => api.post('/mutual-funds/transactions', data),
+  updateTransaction: (id, data) => api.put(`/mutual-funds/transactions/${id}`, data),
+  deleteTransaction: (id) => api.delete(`/mutual-funds/transactions/${id}`),
+  
+  // Holdings
+  getHoldings: () => api.get('/mutual-funds/holdings'),
+};
+
+// Fixed Deposits API
+export const fixedDepositsAPI = {
+  getAll: () => api.get('/fixed-deposits'),
+  create: (data) => api.post('/fixed-deposits', data),
+  update: (id, data) => api.put(`/fixed-deposits/${id}`, data),
+  delete: (id) => api.delete(`/fixed-deposits/${id}`),
+  getMatured: () => api.get('/fixed-deposits/matured'),
+  getUpcomingMaturity: () => api.get('/fixed-deposits/upcoming-maturity'),
+};
+
+// EPF API
+export const epfAPI = {
+  getAccounts: () => api.get('/epf/accounts'),
+  createAccount: (data) => api.post('/epf/accounts', data),
+  updateAccount: (id, data) => api.put(`/epf/accounts/${id}`, data),
+  getContributions: () => api.get('/epf/contributions'),
+  addContribution: (data) => api.post('/epf/contributions', data),
+  getSummary: () => api.get('/epf/summary'),
+};
+
+// NPS API
+export const npsAPI = {
+  getAccounts: () => api.get('/nps/accounts'),
+  createAccount: (data) => api.post('/nps/accounts', data),
+  getContributions: () => api.get('/nps/contributions'),
+  addContribution: (data) => api.post('/nps/contributions', data),
+  getSummary: () => api.get('/nps/summary'),
+};
+
+// Savings Accounts API
+export const savingsAPI = {
+  getAccounts: () => api.get('/savings/accounts'),
+  createAccount: (data) => api.post('/savings/accounts', data),
+  updateAccount: (id, data) => api.put(`/savings/accounts/${id}`, data),
+  getTransactions: () => api.get('/savings/transactions'),
+  addTransaction: (data) => api.post('/savings/transactions', data),
+  getSummary: () => api.get('/savings/summary'),
+};
+
+// Lending API
+export const lendingAPI = {
+  getAll: () => api.get('/lending'),
+  create: (data) => api.post('/lending', data),
+  update: (id, data) => api.put(`/lending/${id}`, data),
+  getSummary: () => api.get('/lending/summary'),
+};
+
+// Other Investments API
+export const otherInvestmentsAPI = {
+  getAll: () => api.get('/other-investments'),
+  create: (data) => api.post('/other-investments', data),
+  update: (id, data) => api.put(`/other-investments/${id}`, data),
+  delete: (id) => api.delete(`/other-investments/${id}`),
+};
+
+// Income API
+export const incomeAPI = {
+  getTransactions: () => api.get('/income/transactions'),
+  createTransaction: (data) => api.post('/income/transactions', data),
+  updateTransaction: (id, data) => api.put(`/income/transactions/${id}`, data),
+  deleteTransaction: (id) => api.delete(`/income/transactions/${id}`),
+  getSummary: () => api.get('/income/summary'),
+  getCategories: () => api.get('/income/categories'),
+};
+
+// Expenses API
+export const expensesAPI = {
+  getTransactions: () => api.get('/expenses/transactions'),
+  createTransaction: (data) => api.post('/expenses/transactions', data),
+  updateTransaction: (id, data) => api.put(`/expenses/transactions/${id}`, data),
+  deleteTransaction: (id) => api.delete(`/expenses/transactions/${id}`),
+  getSummary: () => api.get('/expenses/summary'),
+  getCategories: () => api.get('/expenses/categories'),
+  getTrends: () => api.get('/expenses/trends'),
+};
+
+// Budgets API
+export const budgetsAPI = {
+  getAll: () => api.get('/budgets'),
+  create: (data) => api.post('/budgets', data),
+  update: (id, data) => api.put(`/budgets/${id}`, data),
+  delete: (id) => api.delete(`/budgets/${id}`),
+  getStatus: () => api.get('/budgets/status'),
+};
+
+// Global Settings API
+export const globalSettingsAPI = {
+  get: () => api.get('/settings/global'),
+  update: (data) => api.put('/settings/global', data),
 };
 
 // Import/Export & Backup/Restore API

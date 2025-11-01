@@ -1,20 +1,22 @@
-# Investment Manager - Architecture Documentation
+# Personal Finance Manager - Architecture Documentation
 
 ## Table of Contents
 1. [System Overview](#system-overview)
-2. [Technology Stack](#technology-stack)
-3. [Backend Architecture](#backend-architecture)
-4. [Frontend Architecture](#frontend-architecture)
-5. [Database Schema](#database-schema)
-6. [Data Flow](#data-flow)
-7. [Key Features Implementation](#key-features-implementation)
-8. [Code Organization](#code-organization)
+2. [Platform Transformation](#platform-transformation)
+3. [Technology Stack](#technology-stack)
+4. [Module Organization](#module-organization)
+5. [Backend Architecture](#backend-architecture)
+6. [Frontend Architecture](#frontend-architecture)
+7. [Database Schema](#database-schema)
+8. [Data Flow](#data-flow)
+9. [Key Design Decisions](#key-design-decisions)
+10. [Performance & Security](#performance--security)
 
 ---
 
 ## System Overview
 
-Investment Manager is a **full-stack web application** designed for tracking Indian equity investments with automated price fetching, portfolio analytics, and action-based alerts.
+Personal Finance Manager is a **full-stack web application** evolved from a stock tracker to comprehensive financial management. Track stocks, mutual funds, fixed deposits, EPF, NPS, savings, lending, income, expenses, and budgets - all in one place.
 
 ### Architecture Pattern
 - **Pattern**: Client-Server Architecture with RESTful API
@@ -27,8 +29,86 @@ Investment Manager is a **full-stack web application** designed for tracking Ind
 1. **Separation of Concerns**: Clear boundaries between UI, business logic, and data
 2. **RESTful API**: Stateless communication with standard HTTP methods
 3. **Single Responsibility**: Each module has one clear purpose
-4. **Fail-Safe Price Fetching**: Multiple fallback sources for reliability
+4. **Fail-Safe Design**: Multiple fallback sources for external data
 5. **Data Integrity**: Server-side validation for all transactions
+6. **FIFO Accounting**: Tax-compliant P/L tracking (India)
+
+---
+
+## Platform Transformation
+
+**Date:** October-November 2025  
+**Status:** Phase 1 Complete (Backend + Core Frontend)
+
+### From: Stock Investment Tracker
+- Single asset type (Indian equities)
+- 22 API endpoints
+- 3 database models
+- Basic P/L tracking
+
+### To: Personal Finance Manager
+- **8 asset types** (Stocks, MF, FD, EPF, NPS, Savings, Lending, Other)
+- **70+ API endpoints** (3x expansion)
+- **14 database models** (4.5x expansion)
+- **Comprehensive tracking** (net worth, cash flow, budgets, XIRR)
+
+### What Changed
+
+#### Database Expansion (+11 models)
+```
+Original Models (3):
+- Stock
+- PortfolioTransaction
+- PortfolioSettings
+
+Added Models (11):
+- MutualFund, MutualFundTransaction
+- FixedDeposit
+- EPFAccount, EPFContribution
+- NPSAccount, NPSContribution
+- SavingsAccount, SavingsTransaction
+- LendingRecord
+- OtherInvestment
+- IncomeTransaction, ExpenseTransaction
+- Budget
+- GlobalSettings
+```
+
+#### API Expansion (+48 endpoints)
+
+| Category | Endpoints | Status |
+|----------|-----------|--------|
+| Stocks (original) | 22 | ✅ Production |
+| Mutual Funds | 10 | ✅ Ready |
+| Fixed Income (FD/EPF/NPS) | 16 | ✅ Ready |
+| Savings & Lending | 10 | ✅ Ready |
+| Income & Expenses | 13 | ✅ Ready |
+| Budgets | 5 | ✅ Ready |
+| Dashboard | 4 | ✅ Ready |
+| **Total** | **80** | **All Functional** |
+
+#### Frontend Evolution
+
+```
+Before (6 tabs):          After (9 tabs):
+1. Stock Tracking    →    1. Dashboard (NEW)
+2. Portfolio         →    2. Stocks
+3. Analytics         →    3. Mutual Funds (NEW)
+4. Health            →    4. Fixed Income (NEW)
+5. Recommendations   →    5. Accounts (NEW)
+6. Settings          →    6. Income & Expenses (NEW)
+                           7. Reports (NEW)
+                           8. Health
+                           9. Settings
+```
+
+### Migration Success
+- ✅ Zero data loss (all 35 stocks, 23 transactions preserved)
+- ✅ Backward compatible (existing features work)
+- ✅ Production-ready backend
+- ✅ Comprehensive documentation
+
+See [ROADMAP.md](../ROADMAP.md) for implementation timeline.
 
 ---
 
@@ -56,6 +136,99 @@ Investment Manager is a **full-stack web application** designed for tracking Ind
 | **Material-UI (MUI)** | 5.x | Component library |
 | **Axios** | Latest | HTTP client |
 | **Recharts** | 2.x | Data visualization |
+
+---
+
+## Module Organization
+
+### Project Structure
+
+```
+Investment_Manager/
+├── backend/
+│   ├── app.py                      # Main Flask application
+│   ├── config/                     # Environment configurations
+│   │   ├── __init__.py            # Config loader
+│   │   ├── base.py                # Shared settings
+│   │   ├── development.py         # Dev (SQLite)
+│   │   └── production.py          # Prod (PostgreSQL)
+│   ├── utils/                      # Utility modules
+│   │   ├── holdings.py            # P/L calculations (FIFO)
+│   │   ├── mutual_funds.py        # MF calculations (NEW)
+│   │   ├── cash_flow.py           # Income/expense analysis (NEW)
+│   │   ├── net_worth.py           # Net worth aggregation (NEW)
+│   │   ├── xirr.py                # XIRR calculation (NEW)
+│   │   ├── zones.py               # Price zone logic
+│   │   └── helpers.py             # General utilities
+│   ├── services/                   # External services
+│   │   ├── price_scraper.py       # Multi-source scraping
+│   │   ├── mf_api.py              # MF NAV fetching (NEW)
+│   │   └── nse_api.py             # NSE API client
+│   ├── migrations/                 # DB migrations
+│   │   ├── migrate_to_personal_finance.py  # Main migration (NEW)
+│   │   └── db_migrator.py         # Universal migrator
+│   ├── instance/                   # SQLite database (dev)
+│   └── requirements.txt            # Dependencies
+│
+├── frontend/
+│   ├── src/
+│   │   ├── App.js                  # Main component (9 tabs)
+│   │   ├── components/
+│   │   │   ├── Dashboard.js       # Net worth dashboard (NEW)
+│   │   │   ├── StockTracking.js   # Stock CRUD
+│   │   │   ├── Portfolio.js        # Transactions, P/L
+│   │   │   ├── Analytics.js        # Charts, insights
+│   │   │   ├── Health.js           # Portfolio health
+│   │   │   ├── Recommendations.js  # Rebalancing
+│   │   │   ├── Settings.js         # Import/export, backup
+│   │   │   └── Login.js            # Authentication
+│   │   └── services/
+│   │       └── api.js              # Axios client (20 API modules)
+│   └── package.json
+│
+├── docs/                            # Documentation
+│   ├── ARCHITECTURE.md             # This file
+│   ├── API_REFERENCE.md            # API docs
+│   └── FEATURES.md                 # Feature guide
+│
+├── GETTING_STARTED.md              # Setup guide
+├── CONTRIBUTING.md                 # Developer guide
+├── ROADMAP.md                      # Feature roadmap
+└── README.md                        # Entry point
+```
+
+### Backend Module Responsibilities
+
+| Module | Purpose | Key Functions |
+|--------|---------|---------------|
+| `utils/holdings.py` | Stock P/L (FIFO) | `calculate_holdings()`, `calculate_holding_period_days()` |
+| `utils/mutual_funds.py` | MF tracking (FIFO) | `calculate_mf_holdings()`, `calculate_mf_xirr()` |
+| `utils/cash_flow.py` | Income/expense | `calculate_monthly_cash_flow()`, `get_expense_trends()` |
+| `utils/net_worth.py` | Portfolio aggregation | `calculate_total_net_worth()`, `get_asset_allocation()` |
+| `utils/xirr.py` | Returns calculation | `xirr()`, `calculate_portfolio_xirr()` |
+| `services/price_scraper.py` | Stock prices | `get_scraped_price()`, multi-source fallback |
+| `services/mf_api.py` | MF NAVs | `fetch_mf_nav()`, `fetch_all_mf_navs()` |
+
+### Frontend API Service Modules
+
+All in `frontend/src/services/api.js`:
+
+```javascript
+export const stockAPI = { ... }            // 8 endpoints
+export const portfolioAPI = { ... }        // 7 endpoints
+export const mutualFundsAPI = { ... }      // 10 endpoints
+export const fixedDepositsAPI = { ... }    // 6 endpoints
+export const epfAPI = { ... }              // 5 endpoints
+export const npsAPI = { ... }              // 5 endpoints
+export const savingsAPI = { ... }          // 6 endpoints
+export const lendingAPI = { ... }          // 4 endpoints
+export const otherInvestmentsAPI = { ... } // 4 endpoints
+export const incomeAPI = { ... }           // 6 endpoints
+export const expensesAPI = { ... }         // 7 endpoints
+export const budgetsAPI = { ... }          // 5 endpoints
+export const dashboardAPI = { ... }        // 4 endpoints
+export const globalSettingsAPI = { ... }   // 2 endpoints
+```
 
 ---
 
@@ -109,14 +282,40 @@ backend/
 **Why:** Clean separation of dev/prod configuration, environment-based switching
 
 #### 3. **utils/** - Shared Utilities (Organized Package)
-**Modules:**
-- `auth.py` - `init_auth()`, `api_login_required()`, `verify_credentials()`
-- `holdings.py` - `calculate_holdings()` with realized/unrealized P/L
-- `zones.py` - `parse_zone()`, `is_in_zone()` for price zone logic
-- `validation.py` - `validate_transaction_data()` for input validation
-- `helpers.py` - `clean_symbol()`, `format_refresh_response()`, `normalize_symbol()`
+
+**Core Modules:**
+- `holdings.py` - Stock P/L calculations with FIFO lot tracking
+- `mutual_funds.py` - MF holdings, XIRR, allocation (NEW)
+- `cash_flow.py` - Income/expense analysis, trends (NEW)
+- `net_worth.py` - Portfolio aggregation, asset allocation (NEW)
+- `xirr.py` - XIRR calculation (Newton-Raphson method) (NEW)
+- `zones.py` - Price zone parsing and logic
+- `helpers.py` - Symbol normalization, formatting
+- `validation.py` - Input validation
+- `auth.py` - Authentication helpers
 
 **Why:** Modular organization, eliminates code duplication, clear responsibilities
+
+**Key Algorithm - FIFO Lot Tracking:**
+```python
+from collections import deque
+
+def calculate_holdings(transactions):
+    holdings = {}
+    for t in sorted(transactions, key=lambda x: x.transaction_date):
+        if t.transaction_type == 'BUY':
+            lots_queue.append({'qty': t.quantity, 'price': t.price_per_unit})
+            invested_amount += t.quantity * t.price_per_unit
+        elif t.transaction_type == 'SELL':
+            remaining_qty = t.quantity
+            while remaining_qty > 0 and lots_queue:
+                lot = lots_queue[0]
+                consumed = min(remaining_qty, lot['qty'])
+                realized_pnl += consumed * (t.price_per_unit - lot['price'])
+                invested_amount -= consumed * lot['price']  # Remove cost basis
+                # ... continue FIFO consumption
+    return holdings
+```
 
 #### 4. **services/** - External Services
 **Modules:**
@@ -277,17 +476,224 @@ App (MUI Theme + Tabs)
 | notes | TEXT | NULL | Additional notes |
 | created_at | DATETIME | NOT NULL | Record creation timestamp |
 
-#### 3. **portfolio_settings** - User Preferences
+#### 3. **portfolio_settings** - Stock Portfolio Preferences
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | id | INTEGER | PRIMARY KEY | Always 1 (single row table) |
 | total_amount | FLOAT | DEFAULT 0.0 | Manual total portfolio amount for % calculation |
+| max_large_cap_pct | FLOAT | DEFAULT 5.5 | Max allocation % for large cap |
+| max_mid_cap_pct | FLOAT | DEFAULT 3.5 | Max allocation % for mid cap |
+| max_small_cap_pct | FLOAT | DEFAULT 2.5 | Max allocation % for small/micro cap |
+| updated_at | DATETIME | NULL | Last update timestamp |
+
+### New Tables (Personal Finance Transformation)
+
+#### 4. **mutual_funds** - Mutual Fund Schemes
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| scheme_code | VARCHAR(20) | UNIQUE | AMFI scheme code |
+| scheme_name | VARCHAR(200) | NOT NULL | Full scheme name |
+| fund_house | VARCHAR(100) | NULL | AMC name |
+| category | VARCHAR(50) | NULL | Equity/Debt/Hybrid |
+| sub_category | VARCHAR(100) | NULL | Large Cap, ELSS, etc. |
+| current_nav | FLOAT | NULL | Latest NAV |
+| day_change_pct | FLOAT | NULL | 1-day NAV change % |
+| expense_ratio | FLOAT | NULL | Annual expense ratio |
+| last_updated | DATETIME | NULL | Last NAV fetch timestamp |
+| notes | TEXT | NULL | Analysis notes |
+
+#### 5. **mutual_fund_transactions** - MF Buy/Sell/Switch
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| scheme_code | VARCHAR(20) | NOT NULL | Scheme code |
+| scheme_name | VARCHAR(200) | NOT NULL | Scheme name |
+| transaction_type | VARCHAR(10) | NOT NULL | BUY/SELL/SWITCH |
+| units | FLOAT | NOT NULL | Number of units |
+| nav | FLOAT | NOT NULL | NAV at transaction |
+| amount | FLOAT | NOT NULL | Total amount |
+| transaction_date | DATETIME | NOT NULL | Transaction date |
+| is_sip | BOOLEAN | DEFAULT FALSE | Is this a SIP transaction |
+| sip_id | VARCHAR(50) | NULL | SIP reference ID |
+| reason | TEXT | NULL | Investment reason |
+| notes | TEXT | NULL | Additional notes |
+| created_at | DATETIME | NOT NULL | Record creation timestamp |
+
+#### 6. **fixed_deposits** - Fixed Deposit Tracking
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| bank_name | VARCHAR(100) | NOT NULL | Bank/institution name |
+| account_number | VARCHAR(50) | NULL | FD account number |
+| principal_amount | FLOAT | NOT NULL | Initial deposit amount |
+| interest_rate | FLOAT | NOT NULL | Annual interest rate % |
+| start_date | DATETIME | NOT NULL | FD start date |
+| maturity_date | DATETIME | NOT NULL | Maturity date |
+| interest_frequency | VARCHAR(20) | DEFAULT 'QUARTERLY' | Interest payout frequency |
+| maturity_amount | FLOAT | NULL | Expected maturity amount |
+| status | VARCHAR(20) | DEFAULT 'ACTIVE' | ACTIVE/MATURED/CLOSED |
+| notes | TEXT | NULL | Additional notes |
+| created_at | DATETIME | NOT NULL | Record creation timestamp |
+
+#### 7. **epf_accounts** - EPF Account Master
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| employer_name | VARCHAR(100) | NOT NULL | Current/past employer |
+| uan_number | VARCHAR(20) | UNIQUE | Universal Account Number |
+| opening_balance | FLOAT | DEFAULT 0.0 | Balance at account opening |
+| opening_date | DATETIME | NULL | Account opening date |
+| current_balance | FLOAT | DEFAULT 0.0 | Current total balance |
+| interest_rate | FLOAT | NULL | Current interest rate % |
+| last_updated | DATETIME | NULL | Last balance update |
+
+#### 8. **epf_contributions** - EPF Monthly Contributions
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| epf_account_id | INTEGER | NOT NULL | FK to epf_accounts |
+| month_year | VARCHAR(7) | NOT NULL | Format: YYYY-MM |
+| employee_contribution | FLOAT | NOT NULL | Employee's 12% contribution |
+| employer_contribution | FLOAT | NOT NULL | Employer's contribution |
+| interest_earned | FLOAT | DEFAULT 0.0 | Interest for the month |
+| transaction_date | DATETIME | NOT NULL | Contribution date |
+
+#### 9. **nps_accounts** - NPS Account Master
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| pran_number | VARCHAR(20) | UNIQUE | PRAN number |
+| tier | VARCHAR(10) | DEFAULT 'TIER_1' | TIER_1/TIER_2 |
+| opening_balance | FLOAT | DEFAULT 0.0 | Initial balance |
+| opening_date | DATETIME | NULL | Account opening date |
+| current_balance | FLOAT | DEFAULT 0.0 | Current NAV-based balance |
+| last_updated | DATETIME | NULL | Last update timestamp |
+
+#### 10. **nps_contributions** - NPS Contributions
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| nps_account_id | INTEGER | NOT NULL | FK to nps_accounts |
+| contribution_amount | FLOAT | NOT NULL | Amount contributed |
+| units_allotted | FLOAT | NULL | Units allotted |
+| nav | FLOAT | NULL | NAV at contribution |
+| contribution_date | DATETIME | NOT NULL | Contribution date |
+| contribution_type | VARCHAR(20) | DEFAULT 'REGULAR' | REGULAR/VOLUNTARY |
+
+#### 11. **savings_accounts** - Savings Account Master
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| bank_name | VARCHAR(100) | NOT NULL | Bank name |
+| account_number | VARCHAR(50) | UNIQUE | Account number |
+| account_type | VARCHAR(20) | DEFAULT 'SAVINGS' | SAVINGS/CURRENT |
+| current_balance | FLOAT | DEFAULT 0.0 | Current balance |
+| interest_rate | FLOAT | NULL | Annual interest rate % |
+| last_updated | DATETIME | NULL | Last balance update |
+
+#### 12. **savings_transactions** - Savings Deposits/Withdrawals
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| savings_account_id | INTEGER | NOT NULL | FK to savings_accounts |
+| transaction_type | VARCHAR(20) | NOT NULL | DEPOSIT/WITHDRAWAL/INTEREST |
+| amount | FLOAT | NOT NULL | Transaction amount |
+| balance_after | FLOAT | NULL | Balance after transaction |
+| transaction_date | DATETIME | NOT NULL | Transaction date |
+| description | TEXT | NULL | Transaction description |
+
+#### 13. **lending_records** - Loans Given to Others
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| borrower_name | VARCHAR(100) | NOT NULL | Name of borrower |
+| principal_amount | FLOAT | NOT NULL | Initial loan amount |
+| interest_rate | FLOAT | DEFAULT 0.0 | Annual interest rate % |
+| start_date | DATETIME | NOT NULL | Loan start date |
+| expected_return_date | DATETIME | NULL | Expected repayment date |
+| amount_repaid | FLOAT | DEFAULT 0.0 | Total repaid so far |
+| status | VARCHAR(20) | DEFAULT 'ACTIVE' | ACTIVE/REPAID/DEFAULTED |
+| notes | TEXT | NULL | Additional notes |
+
+#### 14. **other_investments** - Gold, Bonds, Real Estate, Crypto
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| investment_type | VARCHAR(50) | NOT NULL | GOLD/BOND/REAL_ESTATE/CRYPTO/OTHER |
+| name | VARCHAR(200) | NOT NULL | Asset name/description |
+| quantity | FLOAT | NULL | Quantity (e.g., grams, units) |
+| purchase_price | FLOAT | NOT NULL | Purchase price per unit |
+| current_value | FLOAT | NULL | Current market value |
+| purchase_date | DATETIME | NOT NULL | Purchase date |
+| notes | TEXT | NULL | Additional notes |
+
+#### 15. **income_transactions** - Income Tracking
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| source | VARCHAR(100) | NOT NULL | Salary/Business/Freelance/Dividend/Interest/Other |
+| category | VARCHAR(50) | NULL | Sub-category |
+| amount | FLOAT | NOT NULL | Income amount |
+| transaction_date | DATETIME | NOT NULL | Receipt date |
+| is_recurring | BOOLEAN | DEFAULT FALSE | Is this recurring income |
+| description | TEXT | NULL | Income description |
+| notes | TEXT | NULL | Additional notes |
+| created_at | DATETIME | NOT NULL | Record creation timestamp |
+
+#### 16. **expense_transactions** - Expense Tracking
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| category | VARCHAR(100) | NOT NULL | Groceries/Rent/Transport/Entertainment/etc. |
+| sub_category | VARCHAR(100) | NULL | Detailed sub-category |
+| amount | FLOAT | NOT NULL | Expense amount |
+| payment_method | VARCHAR(50) | NULL | Cash/Card/UPI/NetBanking |
+| transaction_date | DATETIME | NOT NULL | Expense date |
+| is_recurring | BOOLEAN | DEFAULT FALSE | Is this recurring expense |
+| description | TEXT | NULL | Expense description |
+| notes | TEXT | NULL | Additional notes |
+| created_at | DATETIME | NOT NULL | Record creation timestamp |
+
+#### 17. **budgets** - Monthly/Annual Budget Limits
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| category | VARCHAR(100) | NOT NULL | Budget category (matches expense categories) |
+| budget_amount | FLOAT | NOT NULL | Budget limit |
+| period | VARCHAR(20) | DEFAULT 'MONTHLY' | MONTHLY/ANNUAL |
+| start_date | DATETIME | NOT NULL | Budget period start |
+| end_date | DATETIME | NULL | Budget period end |
+| alert_threshold | FLOAT | DEFAULT 90.0 | Alert when % of budget used |
+| is_active | BOOLEAN | DEFAULT TRUE | Is budget currently active |
+
+#### 18. **global_settings** - Global App Settings
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Always 1 (single row table) |
+| equity_allocation_target | FLOAT | DEFAULT 60.0 | Target equity % |
+| debt_allocation_target | FLOAT | DEFAULT 30.0 | Target debt % |
+| cash_allocation_target | FLOAT | DEFAULT 10.0 | Target cash % |
+| emergency_fund_months | INTEGER | DEFAULT 6 | Target emergency fund months |
+| currency | VARCHAR(10) | DEFAULT 'INR' | Preferred currency |
+| monthly_income_target | FLOAT | NULL | Target monthly income |
+| monthly_expense_target | FLOAT | NULL | Target monthly expense |
 | updated_at | DATETIME | NULL | Last update timestamp |
 
 ### Relationships
-- **No foreign keys** (intentional design for simplicity)
-- **Soft relationships** via symbol matching
-- Allows flexible data management (stocks can be deleted without affecting transaction history)
+
+**Stock Portfolio (Original):**
+- No foreign keys (intentional simplicity)
+- Soft relationships via symbol matching
+- Allows flexible data management
+
+**New Asset Types:**
+- Soft foreign keys for related tables:
+  - `epf_contributions.epf_account_id` → `epf_accounts.id`
+  - `nps_contributions.nps_account_id` → `nps_accounts.id`
+  - `savings_transactions.savings_account_id` → `savings_accounts.id`
+- No CASCADE constraints (manual data management)
+- Flexible schema allows evolution
 
 ---
 

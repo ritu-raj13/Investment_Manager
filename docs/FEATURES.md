@@ -1,6 +1,6 @@
 # Investment Manager - Feature Documentation
 
-**Last Updated:** October 30, 2025
+**Last Updated:** November 1, 2025
 
 ## Table of Contents
 - [Portfolio Management](#portfolio-management)
@@ -14,6 +14,7 @@
 - [Recommendations](#recommendations)
 - [Stock Tracking](#stock-tracking)
 - [Alert System](#alert-system)
+- [Phase 3: Enhanced Financial Features](#phase-3-enhanced-financial-features)
 - [FAQs](#faqs)
 
 ---
@@ -641,6 +642,310 @@ Near Average Zone: avg_max × 1.03 / avg_min × 0.97
 ## Future Enhancements
 
 See [FUTURE_FEATURES.md](FUTURE_FEATURES.md) for planned features and improvements.
+
+---
+
+---
+
+## Phase 3: Enhanced Financial Features
+
+**New in November 2025:** Comprehensive financial health tracking and cross-asset portfolio management.
+
+### Financial Health Dashboard
+
+**Location:** Health tab → Financial Health section
+
+Track your complete financial wellness with metrics used by financial planners:
+
+#### Overall Financial Health Score
+**What:** Composite score (0-100) based on multiple factors  
+**Components:**
+- Net worth growth
+- Asset allocation balance
+- Debt-to-income ratio
+- Emergency fund adequacy
+- Savings rate
+
+**Color Coding:**
+- 🟢 **75-100:** Excellent financial health
+- 🟡 **50-74:** Good, room for improvement
+- 🔴 **0-49:** Needs attention
+
+#### Debt-to-Income Ratio
+**What:** Percentage of your income going to debt payments  
+**Formula:** `(Total Debt Payments / Monthly Income) × 100`
+
+**Interpretation:**
+- **<20%:** Excellent - healthy debt load
+- **20-35%:** Good - manageable debt
+- **36-49%:** Fair - higher debt burden
+- **>50%:** Poor - debt is overwhelming
+
+**Example:**
+- Monthly income: ₹1,00,000
+- Debt payments (loans, credit cards): ₹25,000
+- Debt-to-income ratio: **25% (Good)**
+
+#### Emergency Fund Status
+**What:** Months of expenses covered by liquid savings  
+**Formula:** `Total Liquid Savings / Average Monthly Expenses`
+
+**Recommendation:**
+- **Minimum:** 3-6 months of expenses
+- **Ideal:** 6-12 months
+- **If self-employed:** 12+ months
+
+**Tracked Accounts:**
+- Savings accounts
+- Cash equivalents
+- Excludes: FD, EPF, NPS (illiquid)
+
+**Example:**
+- Liquid savings: ₹4,50,000
+- Monthly expenses: ₹75,000
+- Emergency fund: **6 months (Ideal)**
+
+#### Savings Rate
+**What:** Percentage of income you're saving  
+**Formula:** `[(Income - Expenses) / Income] × 100`
+
+**Benchmarks:**
+- **<10%:** Below average - increase savings
+- **10-20%:** Good - standard savings rate
+- **20-30%:** Excellent - high savings
+- **>30%:** Exceptional - aggressive savings
+
+**Tracked Period:** Last 30, 90, or 365 days
+
+**Example:**
+- Monthly income: ₹1,50,000
+- Monthly expenses: ₹1,05,000
+- Savings: ₹45,000
+- Savings rate: **30% (Excellent)**
+
+---
+
+### Unified Portfolio XIRR
+
+**Location:** Dashboard tab → Portfolio Returns section
+
+**What:** Single return percentage across ALL your assets (stocks, mutual funds, FDs, EPF, NPS, etc.)
+
+**Why It Matters:**  
+- Traditional XIRR only tracks one asset type
+- Unified XIRR shows TRUE portfolio performance
+- Accounts for timing of ALL cash flows
+
+**Calculation:**
+- Combines cash flows from all asset types
+- Uses Newton-Raphson method for accuracy
+- Accounts for buy/sell timing across years
+
+**Example:**
+```
+Stocks:     12.5% XIRR (₹10L invested)
+Mutual Funds: 15.8% XIRR (₹8L invested)
+Fixed Deposits: 7.5% XIRR (₹5L invested)
+
+Unified XIRR: 12.1% (weighted by investments & timing)
+```
+
+**Features:**
+- Overall portfolio XIRR
+- Breakdown by asset type
+- Visual charts showing contribution
+- Export to CSV for analysis
+
+---
+
+### Global Settings & Allocation Targets
+
+**Location:** Settings tab → Global Settings
+
+Set portfolio targets and let the system track compliance:
+
+#### Asset Allocation Targets
+**Configure:**
+- Maximum equity allocation (e.g., 70%)
+- Maximum debt allocation (e.g., 30%)
+- Minimum cash reserves (e.g., 10%)
+
+**System Response:**
+- Tracks current vs target allocation
+- Highlights when over/under limits
+- Provides rebalancing suggestions
+
+**Example Setup:**
+```
+Max Equity: 70%
+Max Debt: 30%
+Min Cash: 10%
+
+Current State:
+Equity: 75% ⚠️ (5% over target)
+Debt: 20% ✅ (within target)
+Cash: 5% ⚠️ (5% below target)
+
+→ System suggests: Reduce equity, increase cash
+```
+
+#### Budget & Emergency Fund Settings
+**Configure:**
+- Monthly income target
+- Monthly expense budget
+- Minimum emergency fund (months)
+
+**System Tracking:**
+- Alerts when expenses exceed budget
+- Tracks progress toward emergency fund goal
+- Monthly budget compliance reports
+
+#### Currency & Display Preferences
+- Currency symbol (₹, $, €, etc.)
+- Number formatting
+- Date format preferences
+
+---
+
+### Multi-Asset Net Worth Tracking
+
+**Location:** Dashboard tab
+
+**What:** Total net worth across ALL asset categories  
+**Categories Tracked:**
+1. **Equity:** Stocks, Equity Mutual Funds
+2. **Debt:** FDs, Debt Funds, Bonds
+3. **Retirement:** EPF, NPS
+4. **Cash:** Savings accounts
+5. **Other:** Gold, Lending, Crypto, etc.
+
+**Features:**
+- Total net worth (real-time)
+- Breakdown by asset class
+- Pie chart visualization
+- Trend over time
+- Export to Excel/CSV
+
+**Example Display:**
+```
+Total Net Worth: ₹45,50,000
+
+Equity: ₹20,00,000 (44%)
+Debt: ₹12,00,000 (26%)
+Retirement: ₹8,00,000 (18%)
+Cash: ₹3,50,000 (8%)
+Other: ₹2,00,000 (4%)
+```
+
+---
+
+### Cash Flow Analysis
+
+**Location:** Dashboard tab → Cash Flow section
+
+**What:** Visual breakdown of income vs expenses
+
+**Features:**
+- Monthly income tracking
+- Expense categorization
+- Surplus/deficit calculation
+- Trend analysis (3, 6, 12 months)
+- Category-wise spending breakdown
+
+**Visualizations:**
+- Bar chart: Income vs Expenses by month
+- Pie chart: Expense categories
+- Line chart: Savings trend over time
+
+**Example Insights:**
+- "Your spending increased 15% in October"
+- "Food & Dining is 25% of total expenses"
+- "You saved ₹45,000 this month (30% of income)"
+
+---
+
+### Budget Tracking & Alerts
+
+**Location:** Income & Expenses tab → Budgets section
+
+**What:** Set spending limits by category and track compliance
+
+**Features:**
+- Category-level budgets (Food, Transport, Entertainment, etc.)
+- Monthly or annual periods
+- Real-time spend tracking
+- Visual progress bars
+- Alerts when approaching limits
+
+**Budget Status:**
+```
+Food & Dining: ₹15,000 / ₹20,000 (75% used) ✅
+Transport: ₹8,500 / ₹8,000 (106% used) ⚠️
+Entertainment: ₹3,000 / ₹5,000 (60% used) ✅
+
+→ Alert: Transport budget exceeded by ₹500
+```
+
+**Smart Features:**
+- Rollover unused budget (optional)
+- Trend comparison (this month vs last month)
+- Spending patterns analysis
+- Budget optimization suggestions
+
+---
+
+## How to Use Phase 3 Features
+
+### Setup (One-time, 10 minutes)
+
+1. **Configure Global Settings**
+   - Go to Settings → Global Settings
+   - Set allocation targets (equity/debt/cash %)
+   - Set emergency fund goal (months)
+   - Set income/expense targets
+
+2. **Add All Your Assets**
+   - Stocks → Portfolio tab
+   - Mutual Funds → Mutual Funds tab
+   - FDs, EPF, NPS → Fixed Income tab
+   - Savings, Lending → Accounts tab
+
+3. **Track Income & Expenses**
+   - Add income transactions
+   - Add expense transactions
+   - Create category budgets
+
+### Daily Use
+
+1. **Check Dashboard**
+   - View total net worth
+   - Check unified XIRR
+   - Review cash flow
+
+2. **Monitor Health**
+   - Financial health score
+   - Debt-to-income ratio
+   - Emergency fund status
+   - Savings rate
+
+3. **Stay on Budget**
+   - Check budget compliance
+   - Review spending alerts
+   - Adjust as needed
+
+---
+
+## Phase 3 vs Phase 1-2: What's New?
+
+| Feature | Phase 1-2 | Phase 3 |
+|---------|-----------|---------|
+| **Assets Tracked** | Stocks only | Stocks, MF, FD, EPF, NPS, Savings, Lending, Gold, etc. |
+| **XIRR** | Stocks only | Unified across ALL assets |
+| **Net Worth** | Portfolio value | Complete net worth (all assets) |
+| **Health Metrics** | Portfolio concentration | Financial health score, debt-to-income, emergency fund |
+| **Budgeting** | Not available | Full category-wise budgets & alerts |
+| **Allocation** | Market cap/sector | Cross-asset allocation (equity/debt/cash) |
+| **Goals** | Manual tracking | Automated target tracking & compliance |
 
 ---
 

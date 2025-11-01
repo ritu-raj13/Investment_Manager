@@ -17,12 +17,19 @@ import {
 } from '@mui/material';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
-import AnalyticsIcon from '@mui/icons-material/Analytics';
+import DashboardIcon from '@mui/icons-material/Dashboard';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
+import AccountBoxIcon from '@mui/icons-material/AccountBox';
+import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
+import AssessmentIcon from '@mui/icons-material/Assessment';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import RecommendIcon from '@mui/icons-material/Recommend';
 import SettingsIcon from '@mui/icons-material/Settings';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import LogoutIcon from '@mui/icons-material/Logout';
+import BarChartIcon from '@mui/icons-material/BarChart';
+import TimelineIcon from '@mui/icons-material/Timeline';
 import StockTracking from './components/StockTracking';
 import Portfolio from './components/Portfolio';
 import Analytics from './components/Analytics';
@@ -30,6 +37,13 @@ import Health from './components/Health';
 import Recommendations from './components/Recommendations';
 import Settings from './components/Settings';
 import Login from './components/Login';
+import Dashboard from './components/Dashboard';
+import IncomeExpenses from './components/IncomeExpenses';
+import MutualFunds from './components/MutualFunds';
+import FixedIncome from './components/FixedIncome';
+import Accounts from './components/Accounts';
+import Reports from './components/Reports';
+import Equity from './components/Equity';
 import { authAPI } from './services/api';
 
 const theme = createTheme({
@@ -190,9 +204,9 @@ function App() {
           }}
         >
           <Toolbar>
-            <ShowChartIcon sx={{ mr: 2 }} />
+            <DashboardIcon sx={{ mr: 2 }} />
             <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-              Investment Manager
+              Personal Finance Manager
             </Typography>
             {username && (
               <Typography variant="body2" sx={{ mr: 2, opacity: 0.8 }}>
@@ -215,28 +229,43 @@ function App() {
             scrollButtons="auto"
           >
             <Tab 
+              icon={<DashboardIcon />} 
+              label="Dashboard" 
+              iconPosition="start"
+            />
+            <Tab 
               icon={<ShowChartIcon />} 
-              label="Stock Tracking" 
+              label="Stocks" 
               iconPosition="start"
             />
             <Tab 
-              icon={<AccountBalanceWalletIcon />} 
-              label="Portfolio" 
+              icon={<TrendingUpIcon />} 
+              label="Mutual Funds" 
               iconPosition="start"
             />
             <Tab 
-              icon={<AnalyticsIcon />} 
-              label="Analytics"
+              icon={<AccountBalanceIcon />} 
+              label="Fixed Income" 
+              iconPosition="start"
+            />
+            <Tab 
+              icon={<AccountBoxIcon />} 
+              label="Accounts" 
+              iconPosition="start"
+            />
+            <Tab 
+              icon={<MonetizationOnIcon />} 
+              label="Income & Expenses" 
+              iconPosition="start"
+            />
+            <Tab 
+              icon={<AssessmentIcon />} 
+              label="Reports"
               iconPosition="start"
             />
             <Tab 
               icon={<FavoriteIcon />} 
               label="Health"
-              iconPosition="start"
-            />
-            <Tab 
-              icon={<RecommendIcon />} 
-              label="Recommendations"
               iconPosition="start"
             />
             <Tab 
@@ -248,12 +277,15 @@ function App() {
         </AppBar>
         
         <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
-          {currentTab === 0 && <StockTracking />}
-          {currentTab === 1 && <Portfolio />}
-          {currentTab === 2 && <Analytics />}
-          {currentTab === 3 && <Health />}
-          {currentTab === 4 && <Recommendations />}
-          {currentTab === 5 && <Settings />}
+          {currentTab === 0 && <Dashboard />}
+          {currentTab === 1 && <Equity />}
+          {currentTab === 2 && <MutualFunds />}
+          {currentTab === 3 && <FixedIncome />}
+          {currentTab === 4 && <Accounts />}
+          {currentTab === 5 && <IncomeExpenses />}
+          {currentTab === 6 && <Reports />}
+          {currentTab === 7 && <Health />}
+          {currentTab === 8 && <Settings />}
         </Container>
 
         {/* Back to Top Button */}

@@ -19,6 +19,8 @@ import {
   TextField,
   InputAdornment,
   Divider,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadIcon from '@mui/icons-material/Upload';
@@ -28,12 +30,17 @@ import StorageIcon from '@mui/icons-material/Storage';
 import DescriptionIcon from '@mui/icons-material/Description';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SaveIcon from '@mui/icons-material/Save';
-import { dataAPI, portfolioAPI } from '../services/api';
+import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
+import SecurityIcon from '@mui/icons-material/Security';
+import { dataAPI, portfolioAPI, globalSettingsAPI } from '../services/api';
 
 const Settings = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [loading, setLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ open: false, action: null, file: null });
+  const [currentTab, setCurrentTab] = useState(0);
+  
+  // Stock Portfolio Settings
   const [config, setConfig] = useState({
     total_amount: 0,
     max_large_cap_pct: 50,
@@ -43,6 +50,17 @@ const Settings = () => {
     max_sector_pct: 20,
   });
   const [configLoading, setConfigLoading] = useState(false);
+  
+  // Global Settings (Phase 3)
+  const [globalSettings, setGlobalSettings] = useState({
+    max_equity_allocation_pct: 70.0,
+    max_debt_allocation_pct: 30.0,
+    min_emergency_fund_months: 6,
+    monthly_income_target: 0.0,
+    monthly_expense_target: 0.0,
+    currency: 'INR',
+  });
+  const [globalSettingsLoading, setGlobalSettingsLoading] = useState(false);
 
   const showSnackbar = (message, severity = 'success') => {
     setSnackbar({ open: true, message, severity });
@@ -55,6 +73,7 @@ const Settings = () => {
   // Load configuration on mount
   useEffect(() => {
     loadConfiguration();
+    loadGlobalSettings();
   }, []);
 
   const loadConfiguration = async () => {
@@ -76,8 +95,31 @@ const Settings = () => {
     }
   };
 
+  const loadGlobalSettings = async () => {
+    try {
+      setGlobalSettingsLoading(true);
+      const response = await globalSettingsAPI.get();
+      setGlobalSettings({
+        max_equity_allocation_pct: response.data.max_equity_allocation_pct || 70.0,
+        max_debt_allocation_pct: response.data.max_debt_allocation_pct || 30.0,
+        min_emergency_fund_months: response.data.min_emergency_fund_months || 6,
+        monthly_income_target: response.data.monthly_income_target || 0.0,
+        monthly_expense_target: response.data.monthly_expense_target || 0.0,
+        currency: response.data.currency || 'INR',
+      });
+    } catch (error) {
+      showSnackbar('Failed to load global settings', 'error');
+    } finally {
+      setGlobalSettingsLoading(false);
+    }
+  };
+
   const handleConfigChange = (field, value) => {
     setConfig((prev) => ({ ...prev, [field]: parseFloat(value) || 0 }));
+  };
+
+  const handleGlobalSettingsChange = (field, value) => {
+    setGlobalSettings((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleSaveConfiguration = async () => {
@@ -91,6 +133,18 @@ const Settings = () => {
       showSnackbar('Failed to save configuration', 'error');
     } finally {
       setConfigLoading(false);
+    }
+  };
+
+  const handleSaveGlobalSettings = async () => {
+    try {
+      setGlobalSettingsLoading(true);
+      await globalSettingsAPI.update(globalSettings);
+      showSnackbar('Global settings saved successfully!', 'success');
+    } catch (error) {
+      showSnackbar('Failed to save global settings', 'error');
+    } finally {
+      setGlobalSettingsLoading(false);
     }
   };
 
@@ -206,12 +260,171 @@ const Settings = () => {
           Settings
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Configure portfolio thresholds and manage your data
+          Configure portfolio thresholds, global settings, and manage your data
         </Typography>
       </Box>
 
-      {/* Configuration Section */}
-      <Paper sx={{ p: 3, mb: 4, borderRadius: 3, bgcolor: 'primary.dark' }}>
+      {/* Tabs */}
+      <Paper sx={{ mb: 3, borderRadius: 3 }}>
+        <Tabs 
+          value={currentTab} 
+          onChange={(e, newValue) => setCurrentTab(newValue)}
+          variant="fullWidth"
+          sx={{ borderBottom: 1, borderColor: 'divider' }}
+        >
+          <Tab label="Global Settings" icon={<AccountBalanceIcon />} iconPosition="start" />
+          <Tab label="Stock Portfolio" icon={<SettingsIcon />} iconPosition="start" />
+          <Tab label="Data Management" icon={<StorageIcon />} iconPosition="start" />
+        </Tabs>
+      </Paper>
+
+      {/* Tab 0: Global Settings (Phase 3) */}
+      {currentTab === 0 && (
+        <Paper sx={{ p: 3, mb: 4, borderRadius: 3, bgcolor: 'rgba(96, 165, 250, 0.05)' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+            <AccountBalanceIcon sx={{ mr: 1, fontSize: 28, color: 'primary.main' }} />
+            <Typography variant="h5" fontWeight="bold">
+              Global Settings
+            </Typography>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Configure portfolio-wide targets, emergency fund, and financial goals
+          </Typography>
+
+          {globalSettingsLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <Grid container spacing={3}>
+              {/* Asset Allocation Targets */}
+              <Grid item xs={12}>
+                <Divider sx={{ my: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Asset Allocation Targets (Across All Investments)
+                  </Typography>
+                </Divider>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Maximum Equity Allocation"
+                  type="number"
+                  value={globalSettings.max_equity_allocation_pct}
+                  onChange={(e) => handleGlobalSettingsChange('max_equity_allocation_pct', parseFloat(e.target.value) || 0)}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                  }}
+                  inputProps={{ min: 0, max: 100, step: 1 }}
+                  helperText="Target % of total net worth in equity (stocks + equity MF)"
+                  sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Maximum Debt Allocation"
+                  type="number"
+                  value={globalSettings.max_debt_allocation_pct}
+                  onChange={(e) => handleGlobalSettingsChange('max_debt_allocation_pct', parseFloat(e.target.value) || 0)}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                  }}
+                  inputProps={{ min: 0, max: 100, step: 1 }}
+                  helperText="Target % of total net worth in debt (FD + debt MF + bonds)"
+                  sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+                />
+              </Grid>
+
+              {/* Emergency Fund */}
+              <Grid item xs={12}>
+                <Divider sx={{ my: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Emergency Fund Settings
+                  </Typography>
+                </Divider>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Emergency Fund Target (Months)"
+                  type="number"
+                  value={globalSettings.min_emergency_fund_months}
+                  onChange={(e) => handleGlobalSettingsChange('min_emergency_fund_months', parseInt(e.target.value) || 0)}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">Months</InputAdornment>,
+                    startAdornment: <InputAdornment position="start"><SecurityIcon /></InputAdornment>,
+                  }}
+                  inputProps={{ min: 1, max: 24, step: 1 }}
+                  helperText="Recommended: 6-12 months of expenses"
+                  sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+                />
+              </Grid>
+
+              {/* Budget Targets */}
+              <Grid item xs={12}>
+                <Divider sx={{ my: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Monthly Budget Targets
+                  </Typography>
+                </Divider>
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Monthly Income Target"
+                  type="number"
+                  value={globalSettings.monthly_income_target}
+                  onChange={(e) => handleGlobalSettingsChange('monthly_income_target', parseFloat(e.target.value) || 0)}
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                  }}
+                  helperText="Target monthly income (used for savings rate)"
+                  sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+                />
+              </Grid>
+
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Monthly Expense Target"
+                  type="number"
+                  value={globalSettings.monthly_expense_target}
+                  onChange={(e) => handleGlobalSettingsChange('monthly_expense_target', parseFloat(e.target.value) || 0)}
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start">₹</InputAdornment>,
+                  }}
+                  helperText="Target monthly expenses (used for emergency fund)"
+                  sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+                />
+              </Grid>
+
+              {/* Save Button */}
+              <Grid item xs={12}>
+                <Button
+                  variant="contained"
+                  color="success"
+                  size="large"
+                  startIcon={<SaveIcon />}
+                  onClick={handleSaveGlobalSettings}
+                  disabled={globalSettingsLoading}
+                  sx={{ mt: 2 }}
+                >
+                  Save Global Settings
+                </Button>
+              </Grid>
+            </Grid>
+          )}
+        </Paper>
+      )}
+
+      {/* Tab 1: Stock Portfolio Configuration */}
+      {currentTab === 1 && (
+        <Paper sx={{ p: 3, mb: 4, borderRadius: 3, bgcolor: 'primary.dark' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
           <SettingsIcon sx={{ mr: 1, fontSize: 28 }} />
           <Typography variant="h5" fontWeight="bold">
@@ -352,7 +565,11 @@ const Settings = () => {
           </Grid>
         )}
       </Paper>
+      )}
 
+      {/* Tab 2: Data Management */}
+      {currentTab === 2 && (
+      <Box>
       {/* Data Management Header */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h5" fontWeight="bold" gutterBottom>
@@ -601,6 +818,8 @@ const Settings = () => {
           </Paper>
         </Grid>
       </Grid>
+      </Box>
+      )}
 
       {/* Loading Overlay */}
       {loading && (
