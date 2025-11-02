@@ -17,7 +17,7 @@ def calculate_mf_holdings(transactions):
         transactions: List of MutualFundTransaction objects
         
     Returns:
-        dict: Dictionary with scheme_code as key and holding details as value
+        dict: Dictionary with scheme_id (or scheme_code as fallback) as key and holding details as value
     """
     if not transactions:
         return {}
@@ -28,11 +28,16 @@ def calculate_mf_holdings(transactions):
     sorted_transactions = sorted(transactions, key=lambda t: t.transaction_date)
     
     for transaction in sorted_transactions:
-        scheme_code = transaction.scheme_code
+        # Use scheme_id as primary key, fallback to scheme_code
+        key = transaction.scheme_id if transaction.scheme_id else transaction.scheme_code
+        if not key:
+            key = f"unknown_{transaction.scheme_name}"
         
         # Initialize holding if not exists
-        if scheme_code not in holdings:
-            holdings[scheme_code] = {
+        if key not in holdings:
+            holdings[key] = {
+                'scheme_id': transaction.scheme_id,
+                'scheme_code': transaction.scheme_code,
                 'scheme_name': transaction.scheme_name,
                 'units': 0,
                 'invested_amount': 0,
@@ -40,7 +45,10 @@ def calculate_mf_holdings(transactions):
                 'lots': deque()  # FIFO queue of purchase lots
             }
         
-        holding = holdings[scheme_code]
+        holding = holdings[key]
+        
+        # Always update scheme_name to latest (in case it was changed)
+        holding['scheme_name'] = transaction.scheme_name
         
         if transaction.transaction_type == 'BUY':
             # Add new lot

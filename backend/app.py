@@ -33,6 +33,7 @@ from utils import (
     create_startup_backup
 )
 from services import get_nse_price, get_scraped_price, get_stock_details
+from services.mf_api import fetch_mf_nav_by_name, fetch_mf_nav, get_mf_scheme_details
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -157,7 +158,7 @@ class MutualFund(db.Model):
     __tablename__ = 'mutual_funds'
     
     id = db.Column(db.Integer, primary_key=True)
-    scheme_code = db.Column(db.String(20), unique=True, nullable=False)
+    scheme_code = db.Column(db.String(20), unique=True, nullable=True)
     scheme_name = db.Column(db.String(200), nullable=False)
     fund_house = db.Column(db.String(100))
     category = db.Column(db.String(50))  # equity, debt, hybrid, other
@@ -173,10 +174,13 @@ class MutualFund(db.Model):
             'id': self.id,
             'scheme_code': self.scheme_code,
             'scheme_name': self.scheme_name,
+            'name': self.scheme_name,  # Frontend expects 'name'
             'fund_house': self.fund_house,
+            'amc': self.fund_house,  # Frontend expects 'amc'
             'category': self.category,
             'sub_category': self.sub_category,
             'current_nav': self.current_nav,
+            'nav': self.current_nav,  # Frontend expects 'nav'
             'day_change_pct': self.day_change_pct,
             'expense_ratio': self.expense_ratio,
             'last_updated': self.last_updated.isoformat() if self.last_updated else None,
@@ -188,7 +192,8 @@ class MutualFundTransaction(db.Model):
     __tablename__ = 'mutual_fund_transactions'
     
     id = db.Column(db.Integer, primary_key=True)
-    scheme_code = db.Column(db.String(20), nullable=False)
+    scheme_id = db.Column(db.Integer)  # Link to MutualFund table
+    scheme_code = db.Column(db.String(20))
     scheme_name = db.Column(db.String(200), nullable=False)
     transaction_type = db.Column(db.String(10), nullable=False)  # BUY, SELL, SWITCH
     units = db.Column(db.Float, nullable=False)
@@ -204,18 +209,20 @@ class MutualFundTransaction(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
+            'scheme_id': self.scheme_id,  # Frontend needs this
             'scheme_code': self.scheme_code,
             'scheme_name': self.scheme_name,
             'transaction_type': self.transaction_type,
             'units': self.units,
             'nav': self.nav,
             'amount': self.amount,
-            'transaction_date': self.transaction_date.isoformat(),
+            'transaction_date': self.transaction_date.strftime('%Y-%m-%d') if self.transaction_date else None,  # Backend format
+            'date': self.transaction_date.strftime('%Y-%m-%d') if self.transaction_date else None,  # Frontend format
             'is_sip': self.is_sip,
             'sip_id': self.sip_id,
             'reason': self.reason,
             'notes': self.notes,
-            'created_at': self.created_at.isoformat()
+            'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
 
@@ -926,9 +933,10 @@ def refresh_alert_stocks():
         # Fallback to yfinance
         if not updated:
             try:
-                price = get_yahoo_price(stock.symbol)
-                if price:
-                    stock.current_price = round(price, 2)
+                ticker = yf.Ticker(stock.symbol)
+                info = ticker.history(period='1d')
+                if not info.empty:
+                    stock.current_price = round(info['Close'].iloc[-1], 2)
                     stock.last_updated = datetime.now(timezone.utc)
                     updated = True
                     yahoo_count += 1
@@ -2249,22 +2257,60 @@ def add_mutual_fund_scheme():
     try:
         data = request.json
         
-        if not data or not data.get('scheme_code') or not data.get('scheme_name'):
-            return jsonify({'error': 'Scheme code and name are required'}), 400
+        # Map frontend field names to backend field names
+        # Use 'name' from frontend, fallback to 'scheme_name'
+        scheme_name = data.get('name') if 'name' in data else data.get('scheme_name')
+        if scheme_name == '':
+            scheme_name = None
         
-        # Check if scheme already exists
-        existing = MutualFund.query.filter_by(scheme_code=data['scheme_code']).first()
+        scheme_code = data.get('scheme_code')
+        if scheme_code == '':
+            scheme_code = None
+            
+        fund_house = data.get('amc') if 'amc' in data else data.get('fund_house')
+        if fund_house == '':
+            fund_house = None
+        
+        # Handle numeric fields - convert empty strings to None
+        current_nav = data.get('nav') if 'nav' in data else data.get('current_nav')
+        if current_nav == '' or current_nav is None:
+            current_nav = None
+        else:
+            current_nav = float(current_nav)
+        
+        expense_ratio = data.get('expense_ratio')
+        if expense_ratio == '' or expense_ratio is None:
+            expense_ratio = None
+        else:
+            expense_ratio = float(expense_ratio)
+        
+        # Auto-fetch NAV by scheme name if NAV is missing
+        if scheme_name and not current_nav:
+            try:
+                nav_data = fetch_mf_nav_by_name(scheme_name)
+                if nav_data:
+                    if not current_nav and nav_data.get('nav'):
+                        current_nav = float(nav_data['nav'])
+                    print(f"[OK] Auto-fetched NAV for {scheme_name}: Rs.{current_nav}")
+            except Exception as e:
+                print(f"[WARN] Could not auto-fetch NAV: {str(e)}")
+        
+        if not data or not scheme_name:
+            return jsonify({'error': 'Scheme name is required'}), 400
+        
+        # Check if scheme already exists by name
+        existing = MutualFund.query.filter_by(scheme_name=scheme_name).first()
         if existing:
-            return jsonify({'error': 'Scheme already exists'}), 400
+            return jsonify({'error': 'Scheme with this name already exists'}), 400
         
         scheme = MutualFund(
-            scheme_code=data['scheme_code'],
-            scheme_name=data['scheme_name'],
-            fund_house=data.get('fund_house'),
-            category=data.get('category'),
-            sub_category=data.get('sub_category'),
-            current_nav=data.get('current_nav'),
-            expense_ratio=data.get('expense_ratio'),
+            scheme_code=scheme_code,
+            scheme_name=scheme_name,
+            fund_house=fund_house,
+            category=data.get('category') if data.get('category') else None,
+            sub_category=data.get('sub_category') if data.get('sub_category') else None,
+            current_nav=current_nav,
+            expense_ratio=expense_ratio,
             notes=data.get('notes')
         )
         
@@ -2285,20 +2331,46 @@ def update_mutual_fund_scheme(scheme_id):
         scheme = MutualFund.query.get_or_404(scheme_id)
         data = request.json
         
-        if data.get('scheme_name'):
-            scheme.scheme_name = data['scheme_name']
-        if data.get('fund_house'):
-            scheme.fund_house = data['fund_house']
-        if data.get('category'):
+        # Map frontend field names to backend field names
+        scheme_name = data.get('name') if 'name' in data else data.get('scheme_name')
+        if scheme_name == '':
+            scheme_name = None
+            
+        fund_house = data.get('amc') if 'amc' in data else data.get('fund_house')
+        if fund_house == '':
+            fund_house = None
+        
+        if scheme_name:
+            scheme.scheme_name = scheme_name
+        if fund_house:
+            scheme.fund_house = fund_house
+        if 'category' in data:
             scheme.category = data['category']
-        if data.get('sub_category'):
+        if 'sub_category' in data:
             scheme.sub_category = data['sub_category']
-        if data.get('current_nav') is not None:
-            scheme.current_nav = data['current_nav']
-        if data.get('day_change_pct') is not None:
-            scheme.day_change_pct = data['day_change_pct']
-        if data.get('expense_ratio') is not None:
-            scheme.expense_ratio = data['expense_ratio']
+        
+        # Handle numeric fields - convert empty strings to None
+        if 'nav' in data or 'current_nav' in data:
+            current_nav = data.get('nav') if 'nav' in data else data.get('current_nav')
+            if current_nav == '' or current_nav is None:
+                scheme.current_nav = None
+            else:
+                scheme.current_nav = float(current_nav)
+        
+        if 'day_change_pct' in data:
+            day_change_pct = data.get('day_change_pct')
+            if day_change_pct == '' or day_change_pct is None:
+                scheme.day_change_pct = None
+            else:
+                scheme.day_change_pct = float(day_change_pct)
+        
+        if 'expense_ratio' in data:
+            expense_ratio = data.get('expense_ratio')
+            if expense_ratio == '' or expense_ratio is None:
+                scheme.expense_ratio = None
+            else:
+                scheme.expense_ratio = float(expense_ratio)
+        
         if 'notes' in data:
             scheme.notes = data['notes']
         
@@ -2325,6 +2397,89 @@ def delete_mutual_fund_scheme(scheme_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/mutual-funds/fetch-nav/<scheme_name>', methods=['GET'])
+@api_login_required
+def fetch_mutual_fund_nav_by_name(scheme_name):
+    """
+    Fetch current NAV by scheme name using web search
+    """
+    try:
+        # Fetch NAV data by searching scheme name
+        nav_data = fetch_mf_nav_by_name(scheme_name)
+        
+        if not nav_data or not nav_data.get('nav'):
+            return jsonify({
+                'error': 'Could not fetch NAV. Please enter manually.',
+                'scheme_name': scheme_name
+            }), 404
+        
+        return jsonify({
+            'scheme_name': nav_data.get('scheme_name'),
+            'nav': nav_data.get('nav'),
+            'current_nav': nav_data.get('nav'),  # For frontend compatibility
+            'date': nav_data.get('date'),
+            'last_updated': nav_data.get('date'),
+            'source': nav_data.get('source', 'Web Search')
+        })
+    
+    except Exception as e:
+        print(f"[ERROR] fetch_mutual_fund_nav_by_name failed: {str(e)}")
+        return jsonify({
+            'error': 'Failed to fetch NAV',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/mutual-funds/refresh-navs', methods=['POST'])
+@api_login_required
+def refresh_mutual_fund_navs():
+    """
+    Refresh NAVs for all tracked mutual fund schemes using scheme names
+    """
+    try:
+        schemes = MutualFund.query.all()
+        updated_count = 0
+        failed_count = 0
+        
+        print(f"\n[REFRESH] Starting NAV refresh for {len(schemes)} schemes...")
+        
+        for scheme in schemes:
+            try:
+                old_nav = scheme.current_nav
+                print(f"[REFRESH] Fetching NAV for: {scheme.scheme_name} (current: {old_nav})")
+                
+                # Fetch NAV by scheme name (not code)
+                nav_data = fetch_mf_nav_by_name(scheme.scheme_name)
+                if nav_data and nav_data.get('nav'):
+                    new_nav = float(nav_data['nav'])
+                    scheme.current_nav = new_nav
+                    scheme.last_updated = datetime.now(timezone.utc)
+                    
+                    updated_count += 1
+                    print(f"[REFRESH] ✓ Updated {scheme.scheme_name}: {old_nav} → {new_nav}")
+                else:
+                    failed_count += 1
+                    print(f"[REFRESH] ✗ Could not fetch NAV for {scheme.scheme_name}")
+            except Exception as e:
+                failed_count += 1
+                print(f"[REFRESH] ✗ Error for {scheme.scheme_name}: {str(e)}")
+        
+        db.session.commit()
+        print(f"[REFRESH] Committed changes to database")
+        
+        return jsonify({
+            'message': f'Updated {updated_count} of {len(schemes)} schemes',
+            'updated_count': updated_count,
+            'failed_count': failed_count,
+            'total_count': len(schemes)
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        print(f"[REFRESH] ✗ Error during refresh: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/mutual-funds/transactions', methods=['GET'])
 @api_login_required
 def get_mutual_fund_transactions():
@@ -2343,23 +2498,41 @@ def add_mutual_fund_transaction():
     try:
         data = request.json
         
-        required_fields = ['scheme_code', 'scheme_name', 'transaction_type', 'units', 'nav', 'amount', 'transaction_date']
-        for field in required_fields:
-            if not data or field not in data:
-                return jsonify({'error': f'{field} is required'}), 400
+        # Accept either scheme_id or scheme_code/scheme_name
+        scheme_id = data.get('scheme_id')
+        transaction_date = data.get('date') or data.get('transaction_date')
+        
+        # Required fields check
+        if not data or not data.get('transaction_type') or not data.get('units') or not data.get('nav') or not data.get('amount') or not transaction_date:
+            return jsonify({'error': 'transaction_type, units, nav, amount, and date are required'}), 400
+        
+        # If scheme_id is provided, look up the scheme
+        if scheme_id:
+            scheme = MutualFund.query.get(scheme_id)
+            if not scheme:
+                return jsonify({'error': 'Scheme not found'}), 404
+            scheme_code = scheme.scheme_code or ''
+            scheme_name = scheme.scheme_name
+        else:
+            # Fallback to old method (scheme_code and scheme_name directly)
+            scheme_code = data.get('scheme_code', '')
+            scheme_name = data.get('scheme_name')
+            if not scheme_name:
+                return jsonify({'error': 'scheme_id or scheme_name is required'}), 400
         
         # Parse transaction date
         try:
-            if 'T' in data['transaction_date']:
-                txn_date = datetime.fromisoformat(data['transaction_date'].replace('Z', '+00:00'))
+            if 'T' in transaction_date:
+                txn_date = datetime.fromisoformat(transaction_date.replace('Z', '+00:00'))
             else:
-                txn_date = datetime.strptime(data['transaction_date'], '%Y-%m-%d')
+                txn_date = datetime.strptime(transaction_date, '%Y-%m-%d')
         except ValueError:
             return jsonify({'error': 'Invalid date format'}), 400
         
         transaction = MutualFundTransaction(
-            scheme_code=data['scheme_code'],
-            scheme_name=data['scheme_name'],
+            scheme_id=scheme_id if scheme_id else None,
+            scheme_code=scheme_code,
+            scheme_name=scheme_name,
             transaction_type=data['transaction_type'].upper(),
             units=float(data['units']),
             nav=float(data['nav']),
@@ -2388,10 +2561,20 @@ def update_mutual_fund_transaction(txn_id):
         transaction = MutualFundTransaction.query.get_or_404(txn_id)
         data = request.json
         
+        # Handle scheme_id - lookup scheme if provided
+        if data.get('scheme_id'):
+            scheme = MutualFund.query.get(data['scheme_id'])
+            if scheme:
+                transaction.scheme_id = data['scheme_id']
+                transaction.scheme_code = scheme.scheme_code or ''
+                transaction.scheme_name = scheme.scheme_name
+        
+        # Fallback to direct scheme_code/scheme_name
         if data.get('scheme_code'):
             transaction.scheme_code = data['scheme_code']
         if data.get('scheme_name'):
             transaction.scheme_name = data['scheme_name']
+            
         if data.get('transaction_type'):
             transaction.transaction_type = data['transaction_type'].upper()
         if data.get('units') is not None:
@@ -2400,11 +2583,15 @@ def update_mutual_fund_transaction(txn_id):
             transaction.nav = float(data['nav'])
         if data.get('amount') is not None:
             transaction.amount = float(data['amount'])
-        if data.get('transaction_date'):
-            if 'T' in data['transaction_date']:
-                transaction.transaction_date = datetime.fromisoformat(data['transaction_date'].replace('Z', '+00:00'))
+            
+        # Handle date field (frontend sends 'date', backend stores 'transaction_date')
+        date_value = data.get('date') or data.get('transaction_date')
+        if date_value:
+            if 'T' in date_value:
+                transaction.transaction_date = datetime.fromisoformat(date_value.replace('Z', '+00:00'))
             else:
-                transaction.transaction_date = datetime.strptime(data['transaction_date'], '%Y-%m-%d')
+                transaction.transaction_date = datetime.strptime(date_value, '%Y-%m-%d')
+                
         if 'is_sip' in data:
             transaction.is_sip = data['is_sip']
         if 'sip_id' in data:
@@ -2442,30 +2629,124 @@ def get_mutual_fund_holdings():
     try:
         transactions = MutualFundTransaction.query.order_by(MutualFundTransaction.transaction_date).all()
         
-        from utils.mutual_funds import calculate_mf_holdings
+        from utils.mutual_funds import calculate_mf_holdings, calculate_mf_xirr
         holdings_dict = calculate_mf_holdings(transactions)
         
-        # Get scheme details
+        # Get scheme details - create maps by both ID and code
         schemes = MutualFund.query.all()
-        schemes_map = {scheme.scheme_code: scheme for scheme in schemes}
+        schemes_by_id = {scheme.id: scheme for scheme in schemes}
+        schemes_by_code = {scheme.scheme_code: scheme for scheme in schemes if scheme.scheme_code}
         
         holdings_list = []
-        for scheme_code, holding in holdings_dict.items():
+        total_invested = 0
+        total_current_value = 0
+        total_unrealized_pl = 0
+        
+        for key, holding in holdings_dict.items():
             if holding['units'] > 0:
-                scheme = schemes_map.get(scheme_code)
+                # Try to find scheme by ID first, then by code
+                scheme = None
+                scheme_id = holding.get('scheme_id')
+                
+                if scheme_id:
+                    scheme = schemes_by_id.get(scheme_id)
+                
+                if not scheme and holding.get('scheme_code'):
+                    scheme = schemes_by_code.get(holding['scheme_code'])
+                
+                # Calculate current value first
+                current_value = (scheme.current_nav * holding['units']) if scheme and scheme.current_nav else 0
+                invested_amount = holding['invested_amount']
+                
+                # Calculate XIRR for this holding
+                scheme_transactions = [t for t in transactions if (t.scheme_id == scheme_id or t.scheme_name == holding['scheme_name'])]
+                
+                # Calculate XIRR with current value
+                if scheme_transactions and current_value > 0:
+                    from utils.xirr import xirr
+                    from datetime import date
+                    cash_flows = []
+                    for txn in scheme_transactions:
+                        txn_date = txn.transaction_date
+                        if isinstance(txn_date, datetime):
+                            txn_date = txn_date.date()
+                        if txn.transaction_type == 'BUY':
+                            cash_flows.append((txn_date, -txn.amount))
+                        elif txn.transaction_type == 'SELL':
+                            cash_flows.append((txn_date, txn.amount))
+                    # Add current value as final inflow
+                    cash_flows.append((date.today(), current_value))
+                    try:
+                        xirr_value = xirr(cash_flows)
+                        if xirr_value is not None:
+                            xirr_value = round(xirr_value * 100, 2)  # Convert to percentage and round to 2 decimals
+                    except:
+                        xirr_value = None
+                else:
+                    xirr_value = None
+                unrealized_pl = current_value - invested_amount if current_value else 0
+                return_percent = (unrealized_pl / invested_amount * 100) if invested_amount > 0 else 0
+                
+                total_invested += invested_amount
+                total_current_value += current_value
+                total_unrealized_pl += unrealized_pl
+                
                 holdings_list.append({
-                    'scheme_code': scheme_code,
+                    'id': len(holdings_list) + 1,  # Temporary ID for frontend
+                    'scheme_id': scheme_id,
+                    'scheme_code': holding.get('scheme_code', ''),
                     'scheme_name': holding['scheme_name'],
+                    'category': scheme.category if scheme else None,
                     'units': holding['units'],
-                    'invested_amount': holding['invested_amount'],
+                    'avg_nav': invested_amount / holding['units'] if holding['units'] > 0 else 0,
+                    'invested': invested_amount,
+                    'invested_amount': invested_amount,
                     'current_nav': scheme.current_nav if scheme else None,
-                    'current_value': (scheme.current_nav * holding['units']) if scheme and scheme.current_nav else None,
+                    'current_value': current_value,
                     'realized_pnl': holding['realized_pnl'],
-                    'unrealized_pnl': ((scheme.current_nav * holding['units']) - holding['invested_amount']) if scheme and scheme.current_nav else None
+                    'unrealized_pl': unrealized_pl,
+                    'return_percent': return_percent,
+                    'xirr': xirr_value
                 })
         
-        return jsonify(holdings_list)
+        # Calculate overall portfolio XIRR
+        if transactions and total_current_value > 0:
+            from utils.xirr import xirr
+            from datetime import date
+            cash_flows = []
+            for txn in transactions:
+                txn_date = txn.transaction_date
+                if isinstance(txn_date, datetime):
+                    txn_date = txn_date.date()
+                if txn.transaction_type == 'BUY':
+                    cash_flows.append((txn_date, -txn.amount))
+                elif txn.transaction_type == 'SELL':
+                    cash_flows.append((txn_date, txn.amount))
+            # Add current portfolio value as final inflow
+            cash_flows.append((date.today(), total_current_value))
+            try:
+                overall_xirr = xirr(cash_flows)
+                if overall_xirr is not None:
+                    overall_xirr = round(overall_xirr * 100, 2)  # Convert to percentage and round to 2 decimals
+            except:
+                overall_xirr = None
+        else:
+            overall_xirr = None
+        
+        return jsonify({
+            'holdings': holdings_list,
+            'summary': {
+                'total_invested': round(total_invested, 2),
+                'current_value': round(total_current_value, 2),
+                'unrealized_pl': round(total_unrealized_pl, 2),
+                'return_percent': round((total_unrealized_pl / total_invested * 100) if total_invested > 0 else 0, 2),
+                'xirr': overall_xirr
+            }
+        })
     except Exception as e:
+        print(f"ERROR in get_mutual_fund_holdings: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 

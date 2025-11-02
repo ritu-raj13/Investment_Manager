@@ -2,16 +2,379 @@
 Mutual Fund API Service
 
 This module provides functions to fetch mutual fund NAV and scheme details
-from AMFI (Association of Mutual Funds in India) and other sources.
+from web search and scraping.
 """
 
 import requests
+from bs4 import BeautifulSoup
 from datetime import datetime
+import re
+
+
+def fetch_mf_nav_by_name(scheme_name):
+    """
+    Fetch current NAV for a mutual fund scheme by searching its name
+    Uses mfapi.in direct search
+    
+    Args:
+        scheme_name: Scheme name (e.g., "SBI Bluechip Fund")
+        
+    Returns:
+        dict: NAV data or None if fetch fails
+    """
+    try:
+        print(f"[MF_API] Fetching NAV for: {scheme_name}")
+        
+        # Method 1: Try mfapi.in search (most reliable)
+        print(f"[MF_API] Trying mfapi.in search...")
+        nav_data = _fetch_from_mfapi_search(scheme_name)
+        if nav_data:
+            print(f"[MF_API] ✓ Found via mfapi: {nav_data}")
+            return nav_data
+        
+        # Method 2: Try direct Google Finance
+        print(f"[MF_API] Trying direct MF lookup...")
+        nav_data = _fetch_direct_nav(scheme_name)
+        if nav_data:
+            print(f"[MF_API] ✓ Found via direct lookup: {nav_data}")
+            return nav_data
+        
+        print(f"[MF_API] ✗ All methods failed for: {scheme_name}")
+        return None
+    
+    except Exception as e:
+        print(f'[MF_API] ✗ Error fetching NAV for {scheme_name}: {str(e)}')
+        return None
+
+
+def _fetch_from_mfapi_search(scheme_name):
+    """
+    Fetch NAV by searching all schemes on mfapi.in
+    Uses strict matching to prevent wrong scheme matches
+    """
+    try:
+        print(f"[MFAPI] Searching for: {scheme_name}")
+        
+        # Fetch all schemes list
+        url = 'https://api.mfapi.in/mf'
+        response = requests.get(url, timeout=10)
+        print(f"[MFAPI] Schemes list response: {response.status_code}")
+        
+        if response.status_code != 200:
+            return None
+            
+        schemes = response.json()
+        
+        # Normalize search name
+        search_name_normalized = _normalize_scheme_name(scheme_name)
+        search_words = set(search_name_normalized.split())
+        
+        print(f"[MFAPI] Normalized search: {search_name_normalized}")
+        print(f"[MFAPI] Searching through {len(schemes)} schemes...")
+        
+        # Strategy 1: Exact match (case-insensitive, normalized)
+        for scheme in schemes:
+            scheme_full_name = scheme.get('schemeName', '')
+            normalized = _normalize_scheme_name(scheme_full_name)
+            
+            if search_name_normalized == normalized:
+                print(f"[MFAPI] ✓ EXACT MATCH: {scheme_full_name}")
+                return _fetch_nav_for_scheme(scheme)
+        
+        # Strategy 2: Very strict fuzzy match
+        # Requirements:
+        # 1. AMC name MUST match exactly (first word)
+        # 2. All key words must be present
+        # 3. Plan type must match (Direct/Regular, Growth/Dividend)
+        
+        search_amc = scheme_name.split()[0].lower()
+        search_has_direct = 'direct' in scheme_name.lower()
+        search_has_growth = 'growth' in scheme_name.lower()
+        
+        candidates = []
+        
+        for scheme in schemes:
+            scheme_full_name = scheme.get('schemeName', '')
+            scheme_lower = scheme_full_name.lower()
+            
+            # 1. AMC must match
+            scheme_amc = scheme_full_name.split()[0].lower()
+            if search_amc != scheme_amc:
+                continue
+            
+            # 2. Plan type must match
+            scheme_has_direct = 'direct' in scheme_lower
+            scheme_has_growth = 'growth' in scheme_lower
+            
+            if search_has_direct != scheme_has_direct:
+                continue
+            if search_has_growth != scheme_has_growth:
+                continue
+            
+            # 3. Calculate word overlap (excluding common words)
+            common_words = {'fund', 'plan', 'option', 'scheme', '-', 'mutual'}
+            scheme_words = set(_normalize_scheme_name(scheme_full_name).split()) - common_words
+            relevant_search_words = search_words - common_words
+            
+            if not relevant_search_words:
+                continue
+                
+            matching = scheme_words & relevant_search_words
+            match_ratio = len(matching) / len(relevant_search_words)
+            
+            # Require 85% of meaningful words to match
+            if match_ratio >= 0.85:
+                candidates.append({
+                    'scheme': scheme,
+                    'name': scheme_full_name,
+                    'match_ratio': match_ratio,
+                    'matching_words': matching
+                })
+                print(f"[MFAPI] Candidate (match={match_ratio:.0%}): {scheme_full_name}")
+        
+        # Pick best candidate
+        if candidates:
+            best = max(candidates, key=lambda x: x['match_ratio'])
+            print(f"[MFAPI] ✓ Best match ({best['match_ratio']:.0%}): {best['name']}")
+            print(f"[MFAPI]   Your input: {scheme_name}")
+            print(f"[MFAPI]   Matched to: {best['name']}")
+            print(f"[MFAPI]   Matching words: {best['matching_words']}")
+            return _fetch_nav_for_scheme(best['scheme'])
+        
+        print(f"[MFAPI] ✗ No matching scheme found")
+        print(f"[MFAPI]   Tip: Try searching 'Tata Digital India' without 'Fund Direct Growth'")
+        return None
+    
+    except Exception as e:
+        print(f'[MFAPI] ✗ Error: {str(e)}')
+        import traceback
+        print(f"[MFAPI] Traceback: {traceback.format_exc()}")
+        return None
+
+
+def _normalize_scheme_name(name):
+    """Normalize scheme name for comparison"""
+    # Convert to lowercase
+    normalized = name.lower()
+    # Remove extra spaces and punctuation
+    normalized = re.sub(r'[^\w\s]', ' ', normalized)
+    normalized = re.sub(r'\s+', ' ', normalized)
+    return normalized.strip()
+
+
+def _fetch_nav_for_scheme(scheme):
+    """Helper to fetch NAV given a scheme dict"""
+    scheme_code = scheme.get('schemeCode')
+    scheme_name = scheme.get('schemeName')
+    
+    nav_data = fetch_mf_nav(scheme_code)
+    if nav_data:
+        nav_value = nav_data.get('nav')
+        print(f"[MFAPI] ✓ NAV fetched: {nav_value}")
+        print(f"[MFAPI]   Scheme: {scheme_name}")
+        print(f"[MFAPI]   Code: {scheme_code}")
+        print(f"[MFAPI]   Date: {nav_data.get('date')}")
+        return nav_data
+    return None
+
+
+def _fetch_direct_nav(scheme_name):
+    """Direct NAV fetch using known patterns"""
+    try:
+        print(f"[DIRECT] Trying direct fetch for: {scheme_name}")
+        
+        # Extract AMC and scheme type from name
+        # E.g., "Quant ELSS Tax Saver Fund Direct Growth"
+        name_lower = scheme_name.lower()
+        
+        # Common patterns
+        if 'direct' in name_lower and 'growth' in name_lower:
+            # Try to construct search query
+            amc = scheme_name.split()[0]  # First word is usually AMC
+            
+            # Use alternative API if available
+            print(f"[DIRECT] Extracted AMC: {amc}")
+            
+        return None
+    
+    except Exception as e:
+        print(f'[DIRECT] ✗ Error: {str(e)}')
+        return None
+
+
+def _fetch_from_google_search(scheme_name):
+    """Fetch NAV from Google search results"""
+    try:
+        print(f"[GOOGLE] Searching for: {scheme_name}")
+        
+        # Search query
+        query = f"{scheme_name} NAV latest"
+        url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        print(f"[GOOGLE] Response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            text = soup.get_text()
+            
+            # Save a snippet for debugging
+            print(f"[GOOGLE] Page text length: {len(text)} chars")
+            
+            # More comprehensive patterns - look for decimals first
+            patterns = [
+                # Decimal patterns (more specific)
+                r'NAV[:\s]*₹?\s*(\d+\.\d{2,4})',
+                r'₹\s*(\d+\.\d{2,4})',
+                r'Rs\.?\s*(\d+\.\d{2,4})',
+                r'Current\s+NAV[:\s]*(\d+\.\d{2,4})',
+                r'Latest\s+NAV[:\s]*(\d+\.\d{2,4})',
+                # Fallback patterns
+                r'(\d+\.\d{2,4})\s*₹',
+                r'(\d+\.\d{2,4})\s*per\s*unit',
+                r'Price[:\s]*(\d+\.\d{2,4})',
+            ]
+            
+            found_values = []
+            for pattern in patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    try:
+                        nav_value = float(match)
+                        if 10 <= nav_value <= 10000:
+                            found_values.append(nav_value)
+                            print(f"[GOOGLE] Found potential NAV via pattern '{pattern}': {nav_value}")
+                    except ValueError:
+                        continue
+            
+            # Return the most common value if multiple found
+            if found_values:
+                from collections import Counter
+                most_common = Counter(found_values).most_common(1)[0][0]
+                result = {
+                    'scheme_name': scheme_name,
+                    'nav': most_common,
+                    'date': datetime.now().strftime('%d-%m-%Y'),
+                    'source': 'Google Search'
+                }
+                print(f"[GOOGLE] ✓ Success (selected most common): {result}")
+                return result
+            
+            print(f"[GOOGLE] ✗ No valid NAV found in search results")
+        
+        return None
+    
+    except Exception as e:
+        print(f'[GOOGLE] ✗ Error: {str(e)}')
+        import traceback
+        print(f"[GOOGLE] Traceback: {traceback.format_exc()}")
+        return None
+
+
+def _fetch_from_valueresearch(scheme_name):
+    """Fetch NAV from ValueResearch Online"""
+    try:
+        print(f"[VR] Searching ValueResearch for: {scheme_name}")
+        
+        # Search on ValueResearch
+        search_url = f"https://www.valueresearchonline.com/funds/newsearch.asp?search={scheme_name.replace(' ', '+')}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        
+        response = requests.get(search_url, headers=headers, timeout=10)
+        print(f"[VR] Search response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Look for NAV in various elements
+            nav_patterns = [
+                r'NAV[:\s]*₹?\s*(\d+\.\d{2,4})',
+                r'₹\s*(\d+\.\d{2,4})',
+                r'Rs\.?\s*(\d+\.\d{2,4})',
+            ]
+            
+            text = soup.get_text()
+            for pattern in nav_patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    nav_value = float(match)
+                    if 10 <= nav_value <= 10000:
+                        result = {
+                            'scheme_name': scheme_name,
+                            'nav': nav_value,
+                            'date': datetime.now().strftime('%d-%m-%Y'),
+                            'source': 'ValueResearch'
+                        }
+                        print(f"[VR] ✓ Success: {result}")
+                        return result
+        
+        print(f"[VR] ✗ No NAV found")
+        return None
+    except Exception as e:
+        print(f'[VR] ✗ Error: {str(e)}')
+        return None
+
+
+def _fetch_from_moneycontrol(scheme_name):
+    """Fetch NAV from Moneycontrol"""
+    try:
+        print(f"[MC] Searching Moneycontrol for: {scheme_name}")
+        
+        # Moneycontrol search
+        search_url = f"https://www.moneycontrol.com/mutual-funds/nav/search?search={scheme_name.replace(' ', '+')}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        
+        response = requests.get(search_url, headers=headers, timeout=10)
+        print(f"[MC] Search response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Moneycontrol specific patterns
+            nav_patterns = [
+                r'NAV[:\s]*₹?\s*(\d+\.\d{2,4})',
+                r'₹\s*(\d+\.\d{2,4})',
+                r'Rs\.?\s*(\d+\.\d{2,4})',
+            ]
+            
+            text = soup.get_text()
+            for pattern in nav_patterns:
+                matches = re.findall(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    nav_value = float(match)
+                    if 10 <= nav_value <= 10000:
+                        result = {
+                            'scheme_name': scheme_name,
+                            'nav': nav_value,
+                            'date': datetime.now().strftime('%d-%m-%Y'),
+                            'source': 'Moneycontrol'
+                        }
+                        print(f"[MC] ✓ Success: {result}")
+                        return result
+        
+        print(f"[MC] ✗ No NAV found")
+        return None
+    except Exception as e:
+        print(f'[MC] ✗ Error: {str(e)}')
+        return None
 
 
 def fetch_mf_nav(scheme_code):
     """
-    Fetch current NAV for a mutual fund scheme
+    Fetch current NAV for a mutual fund scheme by code
+    Kept for backward compatibility
     
     Args:
         scheme_code: Scheme code (e.g., "119551" for SBI Bluechip Fund)

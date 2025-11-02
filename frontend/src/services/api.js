@@ -90,6 +90,8 @@ export const mutualFundsAPI = {
   createScheme: (data) => api.post('/mutual-funds/schemes', data),
   updateScheme: (id, data) => api.put(`/mutual-funds/schemes/${id}`, data),
   deleteScheme: (id) => api.delete(`/mutual-funds/schemes/${id}`),
+  fetchNav: (schemeName) => api.get(`/mutual-funds/fetch-nav/${encodeURIComponent(schemeName)}`),
+  refreshNavs: () => api.post('/mutual-funds/refresh-navs'),
   
   // Transactions
   getTransactions: () => api.get('/mutual-funds/transactions'),
