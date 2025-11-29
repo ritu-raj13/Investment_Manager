@@ -46,22 +46,23 @@ Personal Finance Manager is a **full-stack web application** evolved from a stoc
 - 3 database models
 - Basic P/L tracking
 
-### To: Personal Finance Manager
+### To: Personal Finance Manager + Swing Trading
 - **8 asset types** (Stocks, MF, FD, EPF, NPS, Savings, Lending, Other)
-- **70+ API endpoints** (3x expansion)
-- **14 database models** (4.5x expansion)
-- **Comprehensive tracking** (net worth, cash flow, budgets, XIRR)
+- **96+ API endpoints** (4.3x expansion)
+- **15 database models** (5x expansion)
+- **Comprehensive tracking** (net worth, cash flow, budgets, XIRR, swing trading)
 
 ### What Changed
 
-#### Database Expansion (+11 models)
+#### Database Expansion (+12 models)
 ```
 Original Models (3):
 - Stock
 - PortfolioTransaction
 - PortfolioSettings
 
-Added Models (11):
+Added Models (12):
+- ParentSectorMapping (NEW Nov 2025 - Swing Trading)
 - MutualFund, MutualFundTransaction
 - FixedDeposit
 - EPFAccount, EPFContribution
@@ -471,24 +472,58 @@ App (MUI Theme + Tabs)
 | transaction_type | VARCHAR(10) | NOT NULL | BUY or SELL |
 | quantity | FLOAT | NOT NULL | Number of shares |
 | price | FLOAT | NOT NULL | Price per share |
+| buy_step | INTEGER | NULL | Buy step (1-3) for multi-step entry |
+| sell_step | INTEGER | NULL | Sell step (1-2) for multi-step exit |
+| avg_price_after | FLOAT | NULL | Average price after this transaction |
 | transaction_date | DATETIME | NOT NULL | Date of transaction |
 | reason | TEXT | NULL | Trade reason/strategy |
 | notes | TEXT | NULL | Additional notes |
 | created_at | DATETIME | NOT NULL | Record creation timestamp |
 
-#### 3. **portfolio_settings** - Stock Portfolio Preferences
+#### 3. **portfolio_settings** - Stock Portfolio Preferences (Swing Trading Enhanced)
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | id | INTEGER | PRIMARY KEY | Always 1 (single row table) |
-| total_amount | FLOAT | DEFAULT 0.0 | Manual total portfolio amount for % calculation |
-| max_large_cap_pct | FLOAT | DEFAULT 5.5 | Max allocation % for large cap |
-| max_mid_cap_pct | FLOAT | DEFAULT 3.5 | Max allocation % for mid cap |
-| max_small_cap_pct | FLOAT | DEFAULT 2.5 | Max allocation % for small/micro cap |
+| projected_portfolio_amount | FLOAT | DEFAULT 0.0 | Projected portfolio target amount |
+| target_date | DATE | NULL | Target date to reach projected amount |
+| max_large_cap_pct | FLOAT | DEFAULT 5.0 | Max % per Large Cap stock (actual limit) |
+| max_mid_cap_pct | FLOAT | DEFAULT 3.0 | Max % per Mid Cap stock |
+| max_small_cap_pct | FLOAT | DEFAULT 2.5 | Max % per Small Cap stock |
+| max_micro_cap_pct | FLOAT | DEFAULT 2.0 | Max % per Micro Cap stock |
+| max_large_cap_stocks | INTEGER | DEFAULT 15 | Max number of Large Cap stocks |
+| max_mid_cap_stocks | INTEGER | DEFAULT 8 | Max number of Mid Cap stocks |
+| max_small_cap_stocks | INTEGER | DEFAULT 7 | Max number of Small Cap stocks |
+| max_micro_cap_stocks | INTEGER | DEFAULT 3 | Max number of Micro Cap stocks |
+| max_large_cap_portfolio_pct | FLOAT | DEFAULT 50.0 | Max total % of portfolio in Large Cap |
+| max_mid_cap_portfolio_pct | FLOAT | DEFAULT 30.0 | Max total % of portfolio in Mid Cap |
+| max_small_cap_portfolio_pct | FLOAT | DEFAULT 25.0 | Max total % of portfolio in Small Cap |
+| max_micro_cap_portfolio_pct | FLOAT | DEFAULT 10.0 | Max total % of portfolio in Micro Cap |
+| max_stocks_per_sector | INTEGER | DEFAULT 2 | Max stocks per parent sector |
+| max_total_stocks | INTEGER | DEFAULT 30 | Max total stocks in portfolio |
 | updated_at | DATETIME | NULL | Last update timestamp |
+
+**Note:** Display values in UI show +0.5% leverage (e.g., Large Cap displays as 5.5% but actual max is 5%)
+
+#### 4. **parent_sector_mappings** - Parent Sector Grouping (NEW Nov 2025)
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| id | INTEGER | PRIMARY KEY | Auto-increment ID |
+| sector_name | VARCHAR(100) | UNIQUE, NOT NULL | Child sector name (e.g., "Auto Components") |
+| parent_sector | VARCHAR(100) | NOT NULL | Parent sector (e.g., "Auto") |
+| created_at | DATETIME | NULL | Creation timestamp |
+| updated_at | DATETIME | NULL | Last update timestamp |
+
+**Purpose:** Group related child sectors under parent sectors to enforce max 2 stocks per parent sector rule
+
+**Example Mappings:**
+- Auto Components → Auto
+- Automobile → Auto
+- IT Services → IT
+- Banking → Banking
 
 ### New Tables (Personal Finance Transformation)
 
-#### 4. **mutual_funds** - Mutual Fund Schemes
+#### 5. **mutual_funds** - Mutual Fund Schemes
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | id | INTEGER | PRIMARY KEY | Auto-increment ID |

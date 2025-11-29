@@ -47,6 +47,15 @@ export const stockAPI = {
   fetchDetails: (symbol) => api.get(`/stocks/fetch-details/${symbol}`),
 };
 
+// Parent Sector Mapping API
+export const sectorAPI = {
+  getParentMappings: () => api.get('/sectors/parent-mappings'),
+  createParentMapping: (data) => api.post('/sectors/parent-mappings', data),
+  deleteParentMapping: (id) => api.delete(`/sectors/parent-mappings/${id}`),
+  getStocksByParent: (parentName) => api.get(`/sectors/parent/${parentName}/stocks`),
+  getParentSectorsList: () => api.get('/sectors/parent-list'),
+};
+
 // Portfolio API
 export const portfolioAPI = {
   getTransactions: () => api.get('/portfolio/transactions'),

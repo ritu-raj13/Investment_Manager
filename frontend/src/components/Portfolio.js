@@ -54,6 +54,8 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
     transaction_type: 'BUY',
     quantity: '',
     price: '',
+    buy_step: '',
+    sell_step: '',
     transaction_date: new Date().toISOString().split('T')[0],
     reason: '',
   });
@@ -85,7 +87,7 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
   const fetchSettings = async () => {
     try {
       const response = await portfolioAPI.getSettings();
-      setTotalAmount(response.data.total_amount || 0);
+      setTotalAmount(response.data.projected_portfolio_amount || response.data.total_amount || 0);
     } catch (error) {
       showSnackbar('Error fetching portfolio settings', 'error');
     }
@@ -100,6 +102,8 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
         transaction_type: transaction.transaction_type,
         quantity: transaction.quantity,
         price: transaction.price,
+        buy_step: transaction.buy_step || '',
+        sell_step: transaction.sell_step || '',
         transaction_date: transaction.transaction_date.split('T')[0],
         reason: transaction.reason || '',
       });
@@ -111,6 +115,8 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
         transaction_type: 'BUY',
         quantity: '',
         price: '',
+        buy_step: '',
+        sell_step: '',
         transaction_date: new Date().toISOString().split('T')[0],
         reason: '',
       });
@@ -775,6 +781,45 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
                 </Select>
               </FormControl>
             </Grid>
+            
+            {/* Buy/Sell Step Selection */}
+            {formData.transaction_type === 'BUY' && (
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Buy Step (Optional)</InputLabel>
+                  <Select
+                    name="buy_step"
+                    value={formData.buy_step}
+                    label="Buy Step (Optional)"
+                    onChange={handleInputChange}
+                  >
+                    <MenuItem value="">None</MenuItem>
+                    <MenuItem value="1">Step 1 (Initial Buy)</MenuItem>
+                    <MenuItem value="2">Step 2 (Average Down)</MenuItem>
+                    <MenuItem value="3">Step 3 (Final Average)</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
+            
+            {formData.transaction_type === 'SELL' && (
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Sell Step (Optional)</InputLabel>
+                  <Select
+                    name="sell_step"
+                    value={formData.sell_step}
+                    label="Sell Step (Optional)"
+                    onChange={handleInputChange}
+                  >
+                    <MenuItem value="">None</MenuItem>
+                    <MenuItem value="1">Step 1 (Partial Sell/Target 1)</MenuItem>
+                    <MenuItem value="2">Step 2 (Final Sell/Target 2)</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
+            
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth

@@ -105,6 +105,9 @@ class PortfolioTransaction(db.Model):
     transaction_type = db.Column(db.String(10), nullable=False)  # "BUY" or "SELL"
     quantity = db.Column(db.Float, nullable=False)
     price = db.Column(db.Float, nullable=False)
+    buy_step = db.Column(db.Integer, nullable=True)  # 1, 2, or 3 for multi-step buying
+    sell_step = db.Column(db.Integer, nullable=True)  # 1 or 2 for multi-step selling
+    avg_price_after = db.Column(db.Float, nullable=True)  # Average price after this transaction
     transaction_date = db.Column(db.DateTime, nullable=False)
     reason = db.Column(db.Text)
     notes = db.Column(db.Text)
@@ -118,6 +121,9 @@ class PortfolioTransaction(db.Model):
             'transaction_type': self.transaction_type,
             'quantity': self.quantity,
             'price': self.price,
+            'buy_step': self.buy_step,
+            'sell_step': self.sell_step,
+            'avg_price_after': self.avg_price_after,
             'transaction_date': self.transaction_date.isoformat(),
             'reason': self.reason,
             'notes': self.notes,
@@ -129,23 +135,75 @@ class PortfolioSettings(db.Model):
     __tablename__ = 'portfolio_settings'
     
     id = db.Column(db.Integer, primary_key=True)
-    total_amount = db.Column(db.Float, default=0.0)  # Manual total portfolio amount for % calculation
-    max_large_cap_pct = db.Column(db.Float, default=50.0)  # Max % allocation for Large Cap
-    max_mid_cap_pct = db.Column(db.Float, default=30.0)  # Max % allocation for Mid Cap
-    max_small_cap_pct = db.Column(db.Float, default=25.0)  # Max % allocation for Small Cap
-    max_micro_cap_pct = db.Column(db.Float, default=15.0)  # Max % allocation for Micro Cap
-    max_sector_pct = db.Column(db.Float, default=20.0)  # Max % allocation per sector
+    projected_portfolio_amount = db.Column(db.Float, default=0.0)  # Projected portfolio target amount for % calculation
+    target_date = db.Column(db.Date, nullable=True)  # Target date for projected portfolio amount
+    
+    # Per-stock allocation limits (% of projected portfolio per individual stock)
+    max_large_cap_pct = db.Column(db.Float, default=5.0)  # Max % per stock for Large Cap (actual: 5%, display: 5.5%)
+    max_mid_cap_pct = db.Column(db.Float, default=3.0)  # Max % per stock for Mid Cap (actual: 3%, display: 3.5%)
+    max_small_cap_pct = db.Column(db.Float, default=2.5)  # Max % per stock for Small Cap (actual: 2.5%, display: 3%)
+    max_micro_cap_pct = db.Column(db.Float, default=2.0)  # Max % per stock for Micro Cap (actual: 2%, display: 2.5%)
+    
+    # Market cap stock count limits (max number of stocks per market cap category)
+    max_large_cap_stocks = db.Column(db.Integer, default=15)  # Max stocks in Large Cap
+    max_mid_cap_stocks = db.Column(db.Integer, default=8)  # Max stocks in Mid Cap
+    max_small_cap_stocks = db.Column(db.Integer, default=7)  # Max stocks in Small Cap
+    max_micro_cap_stocks = db.Column(db.Integer, default=3)  # Max stocks in Micro Cap
+    
+    # Market cap portfolio allocation limits (total % of portfolio per market cap category)
+    max_large_cap_portfolio_pct = db.Column(db.Float, default=50.0)  # Max total % in Large Cap
+    max_mid_cap_portfolio_pct = db.Column(db.Float, default=30.0)  # Max total % in Mid Cap
+    max_small_cap_portfolio_pct = db.Column(db.Float, default=25.0)  # Max total % in Small Cap
+    max_micro_cap_portfolio_pct = db.Column(db.Float, default=10.0)  # Max total % in Micro Cap
+    
+    # Overall limits
+    max_stocks_per_sector = db.Column(db.Integer, default=2)  # Max number of stocks per parent sector
+    max_total_stocks = db.Column(db.Integer, default=30)  # Max total stocks in portfolio
+    
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     def to_dict(self):
         return {
             'id': self.id,
-            'total_amount': self.total_amount,
+            'projected_portfolio_amount': self.projected_portfolio_amount,
+            'target_date': self.target_date.isoformat() if self.target_date else None,
+            # Per-stock limits
             'max_large_cap_pct': self.max_large_cap_pct,
             'max_mid_cap_pct': self.max_mid_cap_pct,
             'max_small_cap_pct': self.max_small_cap_pct,
             'max_micro_cap_pct': self.max_micro_cap_pct,
-            'max_sector_pct': self.max_sector_pct,
+            # Stock count limits per market cap
+            'max_large_cap_stocks': self.max_large_cap_stocks,
+            'max_mid_cap_stocks': self.max_mid_cap_stocks,
+            'max_small_cap_stocks': self.max_small_cap_stocks,
+            'max_micro_cap_stocks': self.max_micro_cap_stocks,
+            # Portfolio % limits per market cap
+            'max_large_cap_portfolio_pct': self.max_large_cap_portfolio_pct,
+            'max_mid_cap_portfolio_pct': self.max_mid_cap_portfolio_pct,
+            'max_small_cap_portfolio_pct': self.max_small_cap_portfolio_pct,
+            'max_micro_cap_portfolio_pct': self.max_micro_cap_portfolio_pct,
+            # Overall limits
+            'max_stocks_per_sector': self.max_stocks_per_sector,
+            'max_total_stocks': self.max_total_stocks,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class ParentSectorMapping(db.Model):
+    __tablename__ = 'parent_sector_mappings'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    sector_name = db.Column(db.String(100), nullable=False, unique=True, index=True)  # Child sector (e.g., "Auto Components")
+    parent_sector = db.Column(db.String(100), nullable=False, index=True)  # Parent sector (e.g., "Auto")
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'sector_name': self.sector_name,
+            'parent_sector': self.parent_sector,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
@@ -1088,6 +1146,84 @@ def fetch_stock_details(symbol):
 
 
 # ============================================================================
+# Parent Sector Mapping Routes (Auth required)
+# ============================================================================
+
+@app.route('/api/sectors/parent-mappings', methods=['GET'])
+@api_login_required
+def get_parent_sector_mappings():
+    """Get all parent sector mappings"""
+    mappings = ParentSectorMapping.query.order_by(ParentSectorMapping.parent_sector, ParentSectorMapping.sector_name).all()
+    return jsonify([m.to_dict() for m in mappings])
+
+
+@app.route('/api/sectors/parent-mappings', methods=['POST'])
+@api_login_required
+def create_parent_sector_mapping():
+    """Create or update a parent sector mapping"""
+    data = request.json
+    
+    sector_name = data.get('sector_name', '').strip()
+    parent_sector = data.get('parent_sector', '').strip()
+    
+    if not sector_name or not parent_sector:
+        return jsonify({'error': 'sector_name and parent_sector are required'}), 400
+    
+    # Check if mapping already exists
+    existing = ParentSectorMapping.query.filter_by(sector_name=sector_name).first()
+    
+    if existing:
+        # Update existing mapping
+        existing.parent_sector = parent_sector
+        existing.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        return jsonify(existing.to_dict())
+    else:
+        # Create new mapping
+        mapping = ParentSectorMapping(
+            sector_name=sector_name,
+            parent_sector=parent_sector
+        )
+        db.session.add(mapping)
+        db.session.commit()
+        return jsonify(mapping.to_dict()), 201
+
+
+@app.route('/api/sectors/parent-mappings/<int:mapping_id>', methods=['DELETE'])
+@api_login_required
+def delete_parent_sector_mapping(mapping_id):
+    """Delete a parent sector mapping"""
+    mapping = ParentSectorMapping.query.get_or_404(mapping_id)
+    db.session.delete(mapping)
+    db.session.commit()
+    return jsonify({'message': 'Parent sector mapping deleted successfully'})
+
+
+@app.route('/api/sectors/parent/<parent_name>/stocks', methods=['GET'])
+@api_login_required
+def get_stocks_by_parent_sector(parent_name):
+    """Get all stocks belonging to a parent sector"""
+    # Get all child sectors for this parent
+    mappings = ParentSectorMapping.query.filter_by(parent_sector=parent_name).all()
+    child_sectors = [m.sector_name for m in mappings]
+    
+    # Also include stocks with the exact parent sector name
+    child_sectors.append(parent_name)
+    
+    # Get stocks in these sectors
+    stocks = Stock.query.filter(Stock.sector.in_(child_sectors)).all()
+    return jsonify([s.to_dict() for s in stocks])
+
+
+@app.route('/api/sectors/parent-list', methods=['GET'])
+@api_login_required
+def get_parent_sectors_list():
+    """Get list of unique parent sectors"""
+    parents = db.session.query(ParentSectorMapping.parent_sector).distinct().all()
+    return jsonify([p[0] for p in parents if p[0]])
+
+
+# ============================================================================
 # Portfolio Routes (Auth required)
 # ============================================================================
 
@@ -1169,6 +1305,40 @@ def create_transaction():
     if not is_valid:
         return jsonify({'error': error_message}), 400
     
+    # Validate buy/sell steps if provided
+    buy_step = data.get('buy_step')
+    sell_step = data.get('sell_step')
+    
+    if buy_step is not None:
+        buy_step = int(buy_step)
+        if buy_step < 1 or buy_step > 3:
+            return jsonify({'error': 'buy_step must be between 1 and 3'}), 400
+    
+    if sell_step is not None:
+        sell_step = int(sell_step)
+        if sell_step < 1 or sell_step > 2:
+            return jsonify({'error': 'sell_step must be between 1 and 2'}), 400
+    
+    # Calculate average price after this transaction (for BUY transactions)
+    avg_price_after = None
+    if data['transaction_type'].upper() == 'BUY':
+        symbol = clean_symbol(data['stock_symbol'])
+        # Get all previous BUY transactions for this stock
+        previous_buys = PortfolioTransaction.query.filter_by(
+            stock_symbol=symbol,
+            transaction_type='BUY'
+        ).all()
+        
+        total_qty = float(data['quantity'])
+        total_value = float(data['quantity']) * float(data['price'])
+        
+        for prev_tx in previous_buys:
+            total_qty += prev_tx.quantity
+            total_value += prev_tx.quantity * prev_tx.price
+        
+        if total_qty > 0:
+            avg_price_after = total_value / total_qty
+    
     # Create transaction
     transaction = PortfolioTransaction(
         stock_symbol=clean_symbol(data['stock_symbol']),
@@ -1176,6 +1346,9 @@ def create_transaction():
         transaction_type=data['transaction_type'].upper(),
         quantity=float(data['quantity']),
         price=float(data['price']),
+        buy_step=buy_step,
+        sell_step=sell_step,
+        avg_price_after=avg_price_after,
         transaction_date=datetime.fromisoformat(data['transaction_date']),
         reason=data.get('reason'),
         notes=data.get('notes')
@@ -1230,6 +1403,24 @@ def update_transaction(transaction_id):
     
     if 'transaction_type' in data:
         transaction.transaction_type = data['transaction_type'].upper()
+    
+    # Update buy/sell steps if provided
+    if 'buy_step' in data:
+        buy_step = data['buy_step']
+        if buy_step is not None:
+            buy_step = int(buy_step)
+            if buy_step < 1 or buy_step > 3:
+                return jsonify({'error': 'buy_step must be between 1 and 3'}), 400
+        transaction.buy_step = buy_step
+    
+    if 'sell_step' in data:
+        sell_step = data['sell_step']
+        if sell_step is not None:
+            sell_step = int(sell_step)
+            if sell_step < 1 or sell_step > 2:
+                return jsonify({'error': 'sell_step must be between 1 and 2'}), 400
+        transaction.sell_step = sell_step
+    
     transaction.transaction_date = datetime.fromisoformat(data['transaction_date']) if 'transaction_date' in data else transaction.transaction_date
     transaction.reason = data.get('reason', transaction.reason)
     transaction.notes = data.get('notes', transaction.notes)
@@ -1350,11 +1541,11 @@ def get_portfolio_summary():
 @app.route('/api/portfolio/settings', methods=['GET'])
 @api_login_required
 def get_portfolio_settings():
-    """Get portfolio settings (total amount for % calculation)"""
+    """Get portfolio settings (projected portfolio amount for % calculation)"""
     settings = PortfolioSettings.query.first()
     if not settings:
         # Create default settings if none exist
-        settings = PortfolioSettings(total_amount=0.0)
+        settings = PortfolioSettings(projected_portfolio_amount=0.0)
         db.session.add(settings)
         db.session.commit()
     return jsonify(settings.to_dict())
@@ -1363,7 +1554,7 @@ def get_portfolio_settings():
 @app.route('/api/portfolio/settings', methods=['PUT'])
 @api_login_required
 def update_portfolio_settings():
-    """Update portfolio settings (total amount and allocation thresholds)"""
+    """Update portfolio settings (projected portfolio amount and allocation thresholds)"""
     data = request.get_json()
     settings = PortfolioSettings.query.first()
     
@@ -1372,8 +1563,23 @@ def update_portfolio_settings():
         db.session.add(settings)
     
     # Update all configurable fields
+    if 'projected_portfolio_amount' in data:
+        settings.projected_portfolio_amount = float(data['projected_portfolio_amount'])
+    # Support old field name for backward compatibility
     if 'total_amount' in data:
-        settings.total_amount = float(data['total_amount'])
+        settings.projected_portfolio_amount = float(data['total_amount'])
+    
+    if 'target_date' in data:
+        if data['target_date']:
+            # Parse date string to date object
+            from datetime import date
+            if isinstance(data['target_date'], str):
+                settings.target_date = date.fromisoformat(data['target_date'])
+            else:
+                settings.target_date = data['target_date']
+        else:
+            settings.target_date = None
+    
     if 'max_large_cap_pct' in data:
         settings.max_large_cap_pct = float(data['max_large_cap_pct'])
     if 'max_mid_cap_pct' in data:
@@ -1382,8 +1588,32 @@ def update_portfolio_settings():
         settings.max_small_cap_pct = float(data['max_small_cap_pct'])
     if 'max_micro_cap_pct' in data:
         settings.max_micro_cap_pct = float(data['max_micro_cap_pct'])
-    if 'max_sector_pct' in data:
-        settings.max_sector_pct = float(data['max_sector_pct'])
+    
+    # Stock count limits per market cap
+    if 'max_large_cap_stocks' in data:
+        settings.max_large_cap_stocks = int(data['max_large_cap_stocks'])
+    if 'max_mid_cap_stocks' in data:
+        settings.max_mid_cap_stocks = int(data['max_mid_cap_stocks'])
+    if 'max_small_cap_stocks' in data:
+        settings.max_small_cap_stocks = int(data['max_small_cap_stocks'])
+    if 'max_micro_cap_stocks' in data:
+        settings.max_micro_cap_stocks = int(data['max_micro_cap_stocks'])
+    
+    # Portfolio % limits per market cap
+    if 'max_large_cap_portfolio_pct' in data:
+        settings.max_large_cap_portfolio_pct = float(data['max_large_cap_portfolio_pct'])
+    if 'max_mid_cap_portfolio_pct' in data:
+        settings.max_mid_cap_portfolio_pct = float(data['max_mid_cap_portfolio_pct'])
+    if 'max_small_cap_portfolio_pct' in data:
+        settings.max_small_cap_portfolio_pct = float(data['max_small_cap_portfolio_pct'])
+    if 'max_micro_cap_portfolio_pct' in data:
+        settings.max_micro_cap_portfolio_pct = float(data['max_micro_cap_portfolio_pct'])
+    
+    # Overall limits
+    if 'max_stocks_per_sector' in data:
+        settings.max_stocks_per_sector = int(data['max_stocks_per_sector'])
+    if 'max_total_stocks' in data:
+        settings.max_total_stocks = int(data['max_total_stocks'])
     
     settings.updated_at = datetime.now(timezone.utc)
     
@@ -1822,11 +2052,14 @@ def get_recommendations_dashboard():
         
         holdings_list = []
         total_invested = 0
+        total_current_value = 0
         
         for symbol, holding in holdings_dict.items():
             if holding['quantity'] > 0:
                 normalized_symbol = symbol.replace('.NS', '').replace('.BO', '').upper()
                 stock = stocks_map.get(normalized_symbol)
+                
+                current_value = (holding['quantity'] * stock.current_price) if (stock and stock.current_price) else 0
                 
                 holdings_list.append({
                     'symbol': symbol,
@@ -1835,17 +2068,27 @@ def get_recommendations_dashboard():
                     'market_cap': stock.market_cap if stock else None,
                     'invested_amount': holding['invested_amount'],
                     'quantity': holding['quantity'],
-                    'current_price': stock.current_price if stock else None
+                    'current_price': stock.current_price if stock else None,
+                    'current_value': current_value
                 })
                 
                 total_invested += holding['invested_amount']
+                total_current_value += current_value
         
-        # Get portfolio settings for thresholds
+        # Get portfolio settings for thresholds and total amount
         settings = PortfolioSettings.query.first()
+        
+        # Use settings.projected_portfolio_amount for percentage calculations (same as Holdings screen)
+        # This ensures % of Total matches between Holdings and Recommendations
+        total_target_amount = settings.projected_portfolio_amount if settings and settings.projected_portfolio_amount > 0 else total_current_value
+        
+        # Get parent sector mappings
+        parent_mappings_list = ParentSectorMapping.query.all()
+        parent_sector_mappings = {m.sector_name: m.parent_sector for m in parent_mappings_list}
         
         # Get rebalancing suggestions
         from utils import get_rebalancing_suggestions
-        rebalancing = get_rebalancing_suggestions(holdings_list, stocks, total_invested, settings)
+        rebalancing = get_rebalancing_suggestions(holdings_list, stocks, total_target_amount, settings, parent_sector_mappings)
         
         # Get alert zone action items (moved from analytics)
         holding_symbols_normalized = set(normalize_symbol(s) for s in holdings_dict.keys())

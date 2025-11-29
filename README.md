@@ -2,8 +2,8 @@
 
 A comprehensive personal finance management platform for tracking stocks, mutual funds, fixed deposits, EPF, NPS, savings, lending, income, expenses, and budgets - all in one place.
 
-**Project Status:** 🎉 **Phase 3 COMPLETE - 95%** (17/18 items)  
-**Last Updated:** November 1, 2025  
+**Project Status:** 🎉 **Phase 3 COMPLETE + Swing Trading Enhanced**  
+**Last Updated:** November 29, 2025  
 **Production Ready:** ✅ Yes
 
 ---
@@ -22,16 +22,17 @@ A comprehensive personal finance management platform for tracking stocks, mutual
 ### ✅ Fully Functional - All Features Ready!
 - **Dashboard** - Net worth, asset allocation, cash flow
 - **Stock Tracking** - Full CRUD, FIFO P/L, XIRR, holding periods
-- **Portfolio Management** - Transaction tracking, realized/unrealized P/L
+- **Portfolio Management** - Transaction tracking, realized/unrealized P/L, multi-step buy/sell
+- **Swing Trading** - Projected portfolio planning, parent sector grouping, 3-tier market cap limits
 - **Mutual Funds** - Schemes, transactions, holdings, SIP, XIRR
 - **Fixed Income** - FD with maturity tracking, EPF, NPS
 - **Savings & Accounts** - Savings accounts, lending tracker, other investments
 - **Income & Expenses** - Transaction tracking, budgets, trends
 - **Reports** - Net worth trends, allocation evolution, tax summary
-- **Analytics** - Charts, top gainers/losers, sector/market cap allocation
+- **Analytics** - Charts, top gainers/losers, sector/market cap allocation, parent sector management
 - **Health Metrics** - Concentration, diversification analysis
-- **Recommendations** - Rebalancing suggestions, price zone alerts
-- **Settings** - Import/export, database backup/restore
+- **Recommendations** - Rebalancing suggestions (attention-sorted), price zone alerts
+- **Settings** - Import/export, database backup/restore, configurable limits
 
 See [docs/PHASE2_SUMMARY.md](docs/PHASE2_SUMMARY.md) for detailed Phase 2 implementation summary.
 
@@ -123,15 +124,23 @@ For complete installation instructions and troubleshooting, see **[GETTING_START
 
 ## Key Features
 
-### Stock Investment Tracking
+### Stock Investment Tracking + Swing Trading
+- **Projected Portfolio Planning** - Set target amount with target date
+- **Multi-Step Buy/Sell** - Track 3-step buys, 2-step sells with avg price
+- **Parent Sector Grouping** - Group related sectors, limit stocks per parent
+- **Three-Tier Market Cap Limits:**
+  - Per-stock % caps (Large: 5%, Mid: 3%, Small: 2.5%, Micro: 2%)
+  - Stock count limits (Large: 15, Mid: 8, Small: 7, Micro: 3)
+  - Portfolio % limits (Large: 50%, Mid: 30%, Small: 25%, Micro: 10%)
+- **Attention-Sorted Rebalancing** - Problem stocks/sectors shown first
 - Multi-stock tracking with price zones (buy/sell/average)
 - FIFO P/L tracking (realized + unrealized)
 - XIRR calculation for portfolio returns
 - Holding period tracking (FIFO-weighted)
 - Automated price fetching (multi-source fallback)
 - Smart alerts (buy/sell/average zones)
-- Allocation monitoring (market cap, sector)
-- Color-coded allocation thresholds
+- Allocation monitoring (market cap, sector, parent sector)
+- Color-coded allocation thresholds with 0.5% leverage
 - Import/Export CSV
 - Database backup/restore
 

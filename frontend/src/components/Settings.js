@@ -42,12 +42,26 @@ const Settings = () => {
   
   // Stock Portfolio Settings
   const [config, setConfig] = useState({
-    total_amount: 0,
-    max_large_cap_pct: 50,
-    max_mid_cap_pct: 30,
-    max_small_cap_pct: 25,
-    max_micro_cap_pct: 15,
-    max_sector_pct: 20,
+    projected_portfolio_amount: 0,
+    target_date: '',
+    // Per-stock limits
+    max_large_cap_pct: 5.0,
+    max_mid_cap_pct: 3.0,
+    max_small_cap_pct: 2.5,
+    max_micro_cap_pct: 2.0,
+    // Stock count limits per market cap
+    max_large_cap_stocks: 15,
+    max_mid_cap_stocks: 8,
+    max_small_cap_stocks: 7,
+    max_micro_cap_stocks: 3,
+    // Portfolio % limits per market cap
+    max_large_cap_portfolio_pct: 50,
+    max_mid_cap_portfolio_pct: 30,
+    max_small_cap_portfolio_pct: 25,
+    max_micro_cap_portfolio_pct: 10,
+    // Overall limits
+    max_stocks_per_sector: 2,
+    max_total_stocks: 30,
   });
   const [configLoading, setConfigLoading] = useState(false);
   
@@ -81,12 +95,26 @@ const Settings = () => {
       setConfigLoading(true);
       const response = await portfolioAPI.getSettings();
       setConfig({
-        total_amount: response.data.total_amount || 0,
-        max_large_cap_pct: response.data.max_large_cap_pct || 50,
-        max_mid_cap_pct: response.data.max_mid_cap_pct || 30,
-        max_small_cap_pct: response.data.max_small_cap_pct || 25,
-        max_micro_cap_pct: response.data.max_micro_cap_pct || 15,
-        max_sector_pct: response.data.max_sector_pct || 20,
+        projected_portfolio_amount: response.data.projected_portfolio_amount || 0,
+        target_date: response.data.target_date || '',
+        // Per-stock limits
+        max_large_cap_pct: response.data.max_large_cap_pct || 5.0,
+        max_mid_cap_pct: response.data.max_mid_cap_pct || 3.0,
+        max_small_cap_pct: response.data.max_small_cap_pct || 2.5,
+        max_micro_cap_pct: response.data.max_micro_cap_pct || 2.0,
+        // Stock count limits per market cap
+        max_large_cap_stocks: response.data.max_large_cap_stocks || 15,
+        max_mid_cap_stocks: response.data.max_mid_cap_stocks || 8,
+        max_small_cap_stocks: response.data.max_small_cap_stocks || 7,
+        max_micro_cap_stocks: response.data.max_micro_cap_stocks || 3,
+        // Portfolio % limits per market cap
+        max_large_cap_portfolio_pct: response.data.max_large_cap_portfolio_pct || 50,
+        max_mid_cap_portfolio_pct: response.data.max_mid_cap_portfolio_pct || 30,
+        max_small_cap_portfolio_pct: response.data.max_small_cap_portfolio_pct || 25,
+        max_micro_cap_portfolio_pct: response.data.max_micro_cap_portfolio_pct || 10,
+        // Overall limits
+        max_stocks_per_sector: response.data.max_stocks_per_sector || 2,
+        max_total_stocks: response.data.max_total_stocks || 30,
       });
     } catch (error) {
       showSnackbar('Failed to load configuration', 'error');
@@ -438,18 +466,34 @@ const Settings = () => {
           </Box>
         ) : (
           <Grid container spacing={3}>
-            {/* Total Portfolio Amount */}
-            <Grid item xs={12}>
+            {/* Projected Portfolio Amount */}
+            <Grid item xs={12} sm={8}>
               <TextField
                 fullWidth
-                label="Total Portfolio Target Amount"
+                label="Projected Portfolio Amount"
                 type="number"
-                value={config.total_amount}
-                onChange={(e) => handleConfigChange('total_amount', e.target.value)}
+                value={config.projected_portfolio_amount}
+                onChange={(e) => handleConfigChange('projected_portfolio_amount', e.target.value)}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">₹</InputAdornment>,
                 }}
-                helperText="Target total portfolio amount for percentage calculations"
+                helperText="Target portfolio amount for percentage calculations (not current invested)"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            {/* Target Date */}
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label="Target Date"
+                type="date"
+                value={config.target_date}
+                onChange={(e) => setConfig(prev => ({ ...prev, target_date: e.target.value }))}
+                InputLabelProps={{
+                  shrink: true,
+                }}
+                helperText="Target date for projected amount"
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>
@@ -466,14 +510,15 @@ const Settings = () => {
             <Grid item xs={12} sm={6} md={3}>
               <TextField
                 fullWidth
-                label="Large Cap Max %"
+                label="Large Cap Max % (Display: 5.5%)"
                 type="number"
                 value={config.max_large_cap_pct}
                 onChange={(e) => handleConfigChange('max_large_cap_pct', e.target.value)}
                 InputProps={{
                   endAdornment: <InputAdornment position="end">%</InputAdornment>,
                 }}
-                inputProps={{ min: 0, max: 100, step: 1 }}
+                inputProps={{ min: 0, max: 100, step: 0.5 }}
+                helperText="Actual max: 5%, with 0.5% leverage shown as 5.5%"
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>
@@ -481,14 +526,15 @@ const Settings = () => {
             <Grid item xs={12} sm={6} md={3}>
               <TextField
                 fullWidth
-                label="Mid Cap Max %"
+                label="Mid Cap Max % (Display: 3.5%)"
                 type="number"
                 value={config.max_mid_cap_pct}
                 onChange={(e) => handleConfigChange('max_mid_cap_pct', e.target.value)}
                 InputProps={{
                   endAdornment: <InputAdornment position="end">%</InputAdornment>,
                 }}
-                inputProps={{ min: 0, max: 100, step: 1 }}
+                inputProps={{ min: 0, max: 100, step: 0.5 }}
+                helperText="Actual max: 3%, with 0.5% leverage shown as 3.5%"
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>
@@ -496,14 +542,15 @@ const Settings = () => {
             <Grid item xs={12} sm={6} md={3}>
               <TextField
                 fullWidth
-                label="Small Cap Max %"
+                label="Small Cap Max % (Display: 3%)"
                 type="number"
                 value={config.max_small_cap_pct}
                 onChange={(e) => handleConfigChange('max_small_cap_pct', e.target.value)}
                 InputProps={{
                   endAdornment: <InputAdornment position="end">%</InputAdornment>,
                 }}
-                inputProps={{ min: 0, max: 100, step: 1 }}
+                inputProps={{ min: 0, max: 100, step: 0.5 }}
+                helperText="Actual max: 2.5%, with 0.5% leverage shown as 3%"
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>
@@ -511,14 +558,15 @@ const Settings = () => {
             <Grid item xs={12} sm={6} md={3}>
               <TextField
                 fullWidth
-                label="Micro Cap Max %"
+                label="Micro Cap Max % (Display: 2.5%)"
                 type="number"
                 value={config.max_micro_cap_pct}
                 onChange={(e) => handleConfigChange('max_micro_cap_pct', e.target.value)}
                 InputProps={{
                   endAdornment: <InputAdornment position="end">%</InputAdornment>,
                 }}
-                inputProps={{ min: 0, max: 100, step: 1 }}
+                inputProps={{ min: 0, max: 100, step: 0.5 }}
+                helperText="Actual max: 2%, with 0.5% leverage shown as 2.5%"
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>
@@ -526,24 +574,186 @@ const Settings = () => {
             <Grid item xs={12}>
               <Divider sx={{ my: 1 }}>
                 <Typography variant="caption" color="text.secondary">
-                  Sector Allocation
+                  Stock Count Limits per Market Cap
                 </Typography>
               </Divider>
             </Grid>
 
-            {/* Sector Allocation */}
-            <Grid item xs={12} sm={6}>
+            {/* Stock Count Limits */}
+            <Grid item xs={12} sm={6} md={3}>
               <TextField
                 fullWidth
-                label="Maximum % per Sector"
+                label="Max Large Cap Stocks"
                 type="number"
-                value={config.max_sector_pct}
-                onChange={(e) => handleConfigChange('max_sector_pct', e.target.value)}
+                value={config.max_large_cap_stocks}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_large_cap_stocks: parseInt(e.target.value) || 15 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">stocks</InputAdornment>,
+                }}
+                inputProps={{ min: 1, max: 50, step: 1 }}
+                helperText="Max number of Large Cap stocks"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="Max Mid Cap Stocks"
+                type="number"
+                value={config.max_mid_cap_stocks}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_mid_cap_stocks: parseInt(e.target.value) || 8 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">stocks</InputAdornment>,
+                }}
+                inputProps={{ min: 1, max: 50, step: 1 }}
+                helperText="Max number of Mid Cap stocks"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="Max Small Cap Stocks"
+                type="number"
+                value={config.max_small_cap_stocks}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_small_cap_stocks: parseInt(e.target.value) || 7 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">stocks</InputAdornment>,
+                }}
+                inputProps={{ min: 1, max: 50, step: 1 }}
+                helperText="Max number of Small Cap stocks"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="Max Micro Cap Stocks"
+                type="number"
+                value={config.max_micro_cap_stocks}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_micro_cap_stocks: parseInt(e.target.value) || 3 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">stocks</InputAdornment>,
+                }}
+                inputProps={{ min: 1, max: 50, step: 1 }}
+                helperText="Max number of Micro Cap stocks"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Portfolio % Limits per Market Cap
+                </Typography>
+              </Divider>
+            </Grid>
+
+            {/* Portfolio % Limits */}
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="Max Large Cap Portfolio %"
+                type="number"
+                value={config.max_large_cap_portfolio_pct}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_large_cap_portfolio_pct: parseFloat(e.target.value) || 50 }))}
                 InputProps={{
                   endAdornment: <InputAdornment position="end">%</InputAdornment>,
                 }}
                 inputProps={{ min: 0, max: 100, step: 1 }}
-                helperText="Maximum allocation allowed for any single sector"
+                helperText="Max total % of portfolio in Large Cap"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="Max Mid Cap Portfolio %"
+                type="number"
+                value={config.max_mid_cap_portfolio_pct}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_mid_cap_portfolio_pct: parseFloat(e.target.value) || 30 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                inputProps={{ min: 0, max: 100, step: 1 }}
+                helperText="Max total % of portfolio in Mid Cap"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="Max Small Cap Portfolio %"
+                type="number"
+                value={config.max_small_cap_portfolio_pct}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_small_cap_portfolio_pct: parseFloat(e.target.value) || 25 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                inputProps={{ min: 0, max: 100, step: 1 }}
+                helperText="Max total % of portfolio in Small Cap"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <TextField
+                fullWidth
+                label="Max Micro Cap Portfolio %"
+                type="number"
+                value={config.max_micro_cap_portfolio_pct}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_micro_cap_portfolio_pct: parseFloat(e.target.value) || 10 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                inputProps={{ min: 0, max: 100, step: 1 }}
+                helperText="Max total % of portfolio in Micro Cap"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Overall Portfolio Limits
+                </Typography>
+              </Divider>
+            </Grid>
+
+            {/* Overall Limits */}
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Max Stocks per Parent Sector"
+                type="number"
+                value={config.max_stocks_per_sector}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_stocks_per_sector: parseInt(e.target.value) || 2 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">stocks</InputAdornment>,
+                }}
+                inputProps={{ min: 1, max: 10, step: 1 }}
+                helperText="Maximum number of stocks allowed in any single parent sector (e.g., Auto, IT, Pharma)"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Max Total Stocks in Portfolio"
+                type="number"
+                value={config.max_total_stocks}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_total_stocks: parseInt(e.target.value) || 30 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">stocks</InputAdornment>,
+                }}
+                inputProps={{ min: 1, max: 100, step: 1 }}
+                helperText="Maximum total number of stocks in entire portfolio"
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>
