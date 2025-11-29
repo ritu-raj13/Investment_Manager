@@ -11,6 +11,19 @@ import {
   CircularProgress,
   IconButton,
   Tooltip,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Snackbar,
 } from '@mui/material';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
@@ -19,16 +32,27 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import ShoppingCartIcon from '@mui/icons-material/ShoppingCart';
 import SellIcon from '@mui/icons-material/Sell';
 import AddShoppingCartIcon from '@mui/icons-material/AddShoppingCart';
-import { analyticsAPI } from '../services/api';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
+import EditIcon from '@mui/icons-material/Edit';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import { analyticsAPI, sectorAPI } from '../services/api';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 const Analytics = () => {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  
+  // Parent Sector Management
+  const [sectorMappings, setSectorMappings] = useState([]);
+  const [sectorDialog, setSectorDialog] = useState(false);
+  const [sectorForm, setSectorForm] = useState({ sector_name: '', parent_sector: '' });
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   useEffect(() => {
     fetchAnalytics();
+    fetchSectorMappings();
   }, []);
 
   const fetchAnalytics = async () => {
@@ -43,6 +67,52 @@ const Analytics = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchSectorMappings = async () => {
+    try {
+      const response = await sectorAPI.getParentMappings();
+      setSectorMappings(response.data);
+    } catch (err) {
+      console.error('Error fetching sector mappings:', err);
+    }
+  };
+
+  const handleAddSectorMapping = () => {
+    setSectorForm({ sector_name: '', parent_sector: '' });
+    setSectorDialog(true);
+  };
+
+  const handleSaveSectorMapping = async () => {
+    if (!sectorForm.sector_name || !sectorForm.parent_sector) {
+      showSnackbar('Both fields are required', 'error');
+      return;
+    }
+    
+    try {
+      await sectorAPI.createParentMapping(sectorForm);
+      showSnackbar('Parent sector mapping saved successfully', 'success');
+      setSectorDialog(false);
+      fetchSectorMappings();
+    } catch (err) {
+      showSnackbar(err.response?.data?.error || 'Failed to save mapping', 'error');
+    }
+  };
+
+  const handleDeleteSectorMapping = async (id) => {
+    if (window.confirm('Delete this sector mapping?')) {
+      try {
+        await sectorAPI.deleteParentMapping(id);
+        showSnackbar('Mapping deleted successfully', 'success');
+        fetchSectorMappings();
+      } catch (err) {
+        showSnackbar('Failed to delete mapping', 'error');
+      }
+    }
+  };
+
+  const showSnackbar = (message, severity) => {
+    setSnackbar({ open: true, message, severity });
   };
 
   const formatCurrency = (value) => {
@@ -569,8 +639,132 @@ const Analytics = () => {
               </Paper>
             </Grid>
           </Grid>
+
+          {/* Parent Sector Management Section */}
+          <Paper sx={{ p: 3, mt: 4, borderRadius: 3, bgcolor: 'rgba(236, 72, 153, 0.05)' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <AccountTreeIcon sx={{ mr: 1, fontSize: 28, color: '#ec4899' }} />
+                <Typography variant="h5" fontWeight="bold">
+                  Parent Sector Management
+                </Typography>
+              </Box>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={handleAddSectorMapping}
+                sx={{ borderRadius: 2 }}
+              >
+                Add Mapping
+              </Button>
+            </Box>
+            
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Map child sectors to parent sectors for better portfolio organization and sector limit enforcement (max 2 stocks per parent sector)
+            </Typography>
+
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell><strong>Child Sector</strong></TableCell>
+                    <TableCell><strong>Parent Sector</strong></TableCell>
+                    <TableCell align="right"><strong>Actions</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {sectorMappings.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={3} align="center">
+                        <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+                          No sector mappings yet. Click "Add Mapping" to create one.
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    sectorMappings.map((mapping) => (
+                      <TableRow key={mapping.id} hover>
+                        <TableCell>{mapping.sector_name}</TableCell>
+                        <TableCell>
+                          <Chip label={mapping.parent_sector} size="small" color="primary" />
+                        </TableCell>
+                        <TableCell align="right">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteSectorMapping(mapping.id)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Alert severity="info" sx={{ mt: 2 }}>
+              <strong>Examples:</strong> Automobile → Auto, Auto Components → Auto, IT Services → IT, Pharmaceuticals → Pharma
+            </Alert>
+          </Paper>
         </>
       )}
+
+      {/* Parent Sector Mapping Dialog */}
+      <Dialog open={sectorDialog} onClose={() => setSectorDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 'bold' }}>
+          Add Parent Sector Mapping
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 0.5 }}>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Child Sector Name"
+                value={sectorForm.sector_name}
+                onChange={(e) => setSectorForm(prev => ({ ...prev, sector_name: e.target.value }))}
+                placeholder="e.g., Automobile, Auto Components, IT Services"
+                helperText="The specific sector name from your stocks"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Parent Sector"
+                value={sectorForm.parent_sector}
+                onChange={(e) => setSectorForm(prev => ({ ...prev, parent_sector: e.target.value }))}
+                placeholder="e.g., Auto, IT, Pharma"
+                helperText="The parent category this sector belongs to"
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button onClick={() => setSectorDialog(false)} sx={{ borderRadius: 2 }}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSaveSectorMapping} 
+            variant="contained" 
+            sx={{ borderRadius: 2, px: 4 }}
+          >
+            Save Mapping
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert severity={snackbar.severity} sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

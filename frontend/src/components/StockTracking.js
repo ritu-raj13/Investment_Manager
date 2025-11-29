@@ -31,12 +31,14 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
-import { stockAPI } from '../services/api';
+import { stockAPI, sectorAPI } from '../services/api';
 
 const StockTracking = () => {
   const [stocks, setStocks] = useState([]);
   const [groups, setGroups] = useState([]);
   const [sectors, setSectors] = useState([]);
+  const [parentSectors, setParentSectors] = useState([]);
+  const [sectorMappings, setSectorMappings] = useState({});
   const [selectedGroup, setSelectedGroup] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [openDialog, setOpenDialog] = useState(false);
@@ -63,6 +65,7 @@ const StockTracking = () => {
     fetchStocks();
     fetchGroups();
     fetchSectors();
+    fetchParentSectors();
   }, []);
 
   useEffect(() => {
@@ -98,6 +101,25 @@ const StockTracking = () => {
       setSectors(response.data);
     } catch (error) {
       console.error('Error fetching sectors:', error);
+    }
+  };
+
+  const fetchParentSectors = async () => {
+    try {
+      const [mappingsRes, parentsRes] = await Promise.all([
+        sectorAPI.getParentMappings(),
+        sectorAPI.getParentSectorsList()
+      ]);
+      
+      // Create a map of child sector -> parent sector
+      const mappings = {};
+      mappingsRes.data.forEach(m => {
+        mappings[m.sector_name] = m.parent_sector;
+      });
+      setSectorMappings(mappings);
+      setParentSectors(parentsRes.data);
+    } catch (error) {
+      console.error('Error fetching parent sectors:', error);
     }
   };
 
@@ -748,7 +770,11 @@ const StockTracking = () => {
                     {...params}
                     label="Sector"
                     placeholder="e.g., FMCG, Auto"
-                    helperText="Select existing or type new"
+                    helperText={
+                      formData.sector && sectorMappings[formData.sector]
+                        ? `Parent: ${sectorMappings[formData.sector]}`
+                        : "Select existing or type new"
+                    }
                   />
                 )}
               />

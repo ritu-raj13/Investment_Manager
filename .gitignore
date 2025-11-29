@@ -28,6 +28,9 @@ ENV/
 *.db
 *.sqlite
 *.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
 
 # Application Data (generated at runtime)
 backend/exports/
@@ -61,6 +64,7 @@ package-lock.json
 *.swo
 *~
 .DS_Store
+*.code-workspace
 
 # OS
 .DS_Store
@@ -76,6 +80,9 @@ test_*.py
 *_test.py
 *TEST*.md
 *_test_*.md
+
+# Test artifacts
+testing/reports/*.log
 
 # Backup files
 *.bak
@@ -99,6 +106,12 @@ frontend/.env
 
 # pyenv
 .python-version
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
 
 # Temporary/Summary files
 *SUMMARY*.md

@@ -37,8 +37,8 @@ import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import { portfolioAPI } from '../services/api';
 
-const Portfolio = () => {
-  const [currentTab, setCurrentTab] = useState(0);
+const Portfolio = ({ initialTab = null, hideTitle = false }) => {
+  const [currentTab, setCurrentTab] = useState(initialTab !== null ? initialTab : 0);
   const [transactions, setTransactions] = useState([]);
   const [summary, setSummary] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -54,6 +54,8 @@ const Portfolio = () => {
     transaction_type: 'BUY',
     quantity: '',
     price: '',
+    buy_step: '',
+    sell_step: '',
     transaction_date: new Date().toISOString().split('T')[0],
     reason: '',
   });
@@ -85,7 +87,7 @@ const Portfolio = () => {
   const fetchSettings = async () => {
     try {
       const response = await portfolioAPI.getSettings();
-      setTotalAmount(response.data.total_amount || 0);
+      setTotalAmount(response.data.projected_portfolio_amount || response.data.total_amount || 0);
     } catch (error) {
       showSnackbar('Error fetching portfolio settings', 'error');
     }
@@ -100,6 +102,8 @@ const Portfolio = () => {
         transaction_type: transaction.transaction_type,
         quantity: transaction.quantity,
         price: transaction.price,
+        buy_step: transaction.buy_step || '',
+        sell_step: transaction.sell_step || '',
         transaction_date: transaction.transaction_date.split('T')[0],
         reason: transaction.reason || '',
       });
@@ -111,6 +115,8 @@ const Portfolio = () => {
         transaction_type: 'BUY',
         quantity: '',
         price: '',
+        buy_step: '',
+        sell_step: '',
         transaction_date: new Date().toISOString().split('T')[0],
         reason: '',
       });
@@ -295,8 +301,8 @@ const Portfolio = () => {
 
   return (
     <Box>
-      {/* Portfolio Summary Cards */}
-      {summary && (
+      {/* Portfolio Summary Cards - ONLY in Holdings tab */}
+      {currentTab === 0 && summary && (
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid item xs={12} sm={6} md={2}>
             <Card sx={{ borderRadius: 3, height: '100%' }}>
@@ -443,35 +449,43 @@ const Portfolio = () => {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Box>
             <Typography variant="h5" component="h2" fontWeight="bold">
-              My Portfolio
+              {currentTab === 0 ? 'My Portfolio' : 'Transaction History'}
             </Typography>
-            <Box sx={{ display: 'flex', gap: 3, mt: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="h6" color="primary" fontWeight="bold">
-                  {summary?.holdings?.length || 0}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Active Holdings
-                </Typography>
+            {currentTab === 0 && (
+              <Box sx={{ display: 'flex', gap: 3, mt: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="h6" color="primary" fontWeight="bold">
+                    {summary?.holdings?.length || 0}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Active Holdings
+                  </Typography>
+                </Box>
               </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="h6" color="primary" fontWeight="bold">
-                  {transactions?.length || 0}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Total Transactions
-                </Typography>
+            )}
+            {currentTab === 1 && (
+              <Box sx={{ display: 'flex', gap: 3, mt: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="h6" color="primary" fontWeight="bold">
+                    {transactions?.length || 0}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Total Transactions
+                  </Typography>
+                </Box>
               </Box>
-            </Box>
+            )}
           </Box>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => handleOpenDialog()}
-            sx={{ borderRadius: 2 }}
-          >
-            Add Transaction
-          </Button>
+          {currentTab === 1 && (
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => handleOpenDialog()}
+              sx={{ borderRadius: 2 }}
+            >
+              Add Transaction
+            </Button>
+          )}
         </Box>
 
         {/* Search Bar */}
@@ -498,10 +512,13 @@ const Portfolio = () => {
           )}
         </Box>
 
-        <Tabs value={currentTab} onChange={(e, v) => setCurrentTab(v)} sx={{ mb: 2 }}>
-          <Tab label="Current Holdings" />
-          <Tab label="Transaction History" />
-        </Tabs>
+        {/* Only show tabs if not controlled from parent */}
+        {initialTab === null && (
+          <Tabs value={currentTab} onChange={(e, v) => setCurrentTab(v)} sx={{ mb: 2 }}>
+            <Tab label="Current Holdings" />
+            <Tab label="Transaction History" />
+          </Tabs>
+        )}
 
         {/* Current Holdings */}
         {currentTab === 0 && summary && (
@@ -764,6 +781,45 @@ const Portfolio = () => {
                 </Select>
               </FormControl>
             </Grid>
+            
+            {/* Buy/Sell Step Selection */}
+            {formData.transaction_type === 'BUY' && (
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Buy Step (Optional)</InputLabel>
+                  <Select
+                    name="buy_step"
+                    value={formData.buy_step}
+                    label="Buy Step (Optional)"
+                    onChange={handleInputChange}
+                  >
+                    <MenuItem value="">None</MenuItem>
+                    <MenuItem value="1">Step 1 (Initial Buy)</MenuItem>
+                    <MenuItem value="2">Step 2 (Average Down)</MenuItem>
+                    <MenuItem value="3">Step 3 (Final Average)</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
+            
+            {formData.transaction_type === 'SELL' && (
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Sell Step (Optional)</InputLabel>
+                  <Select
+                    name="sell_step"
+                    value={formData.sell_step}
+                    label="Sell Step (Optional)"
+                    onChange={handleInputChange}
+                  >
+                    <MenuItem value="">None</MenuItem>
+                    <MenuItem value="1">Step 1 (Partial Sell/Target 1)</MenuItem>
+                    <MenuItem value="2">Step 2 (Final Sell/Target 2)</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            )}
+            
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth

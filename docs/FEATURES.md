@@ -1,8 +1,9 @@
 # Investment Manager - Feature Documentation
 
-**Last Updated:** October 30, 2025
+**Last Updated:** November 29, 2025
 
 ## Table of Contents
+- [Swing Trading Workflow (NEW Nov 2025)](#swing-trading-workflow-new-nov-2025)
 - [Portfolio Management](#portfolio-management)
 - [Profit & Loss Tracking](#profit--loss-tracking)
 - [Advanced Portfolio Metrics](#advanced-portfolio-metrics)
@@ -14,7 +15,356 @@
 - [Recommendations](#recommendations)
 - [Stock Tracking](#stock-tracking)
 - [Alert System](#alert-system)
+- [Phase 3: Enhanced Financial Features](#phase-3-enhanced-financial-features)
 - [FAQs](#faqs)
+
+---
+
+## Swing Trading Workflow (NEW Nov 2025)
+
+**Complete swing trading system** with multi-step buy/sell strategies, parent sector grouping, and advanced market cap limits.
+
+### Projected Portfolio Management
+
+**Location:** Settings → Stock Portfolio Settings
+
+#### Projected Portfolio Amount
+- **What Changed:** Renamed from "Total Portfolio Target Amount" → **"Projected Portfolio Amount"**
+- **Purpose:** Set your target portfolio value for future planning
+- **With Target Date:** Specify when you plan to reach this amount
+- **Usage:** All rebalancing calculations use projected amount (not current invested amount)
+
+**Example:**
+```
+Projected Portfolio Amount: ₹50,00,000
+Target Date: March 31, 2026
+Current Invested: ₹35,00,000
+
+→ System calculates % allocations based on ₹50L target
+→ Shows how much room you have to add in each stock/sector
+```
+
+---
+
+### Multi-Step Buy/Sell Strategy
+
+**Location:** Portfolio → Add/Edit Transaction
+
+Track systematic averaging and scaling strategies for swing trading.
+
+#### Multi-Step Buying (Up to 3 Steps)
+**Purpose:** Average into positions systematically
+
+**How It Works:**
+1. **Step 1:** Initial entry (e.g., 1/3 position at ₹250)
+2. **Step 2:** Average if price dips (e.g., 1/3 more at ₹240)
+3. **Step 3:** Final average (e.g., last 1/3 at ₹230)
+
+**System Tracking:**
+- Automatically calculates average price after each step
+- Displays `avg_price_after` for each transaction
+- Shows completed steps (e.g., "2/3 steps")
+
+**Example:**
+```
+RELIANCE - Buy Strategy
+Step 1: Buy 10 shares @ ₹2,450 → Avg: ₹2,450
+Step 2: Buy 10 shares @ ₹2,380 → Avg: ₹2,415
+Step 3: Buy 10 shares @ ₹2,320 → Avg: ₹2,383
+
+Final Position: 30 shares @ ₹2,383 average
+```
+
+#### Multi-Step Selling (Up to 2 Steps)
+**Purpose:** Book profits systematically
+
+**How It Works:**
+1. **Step 1:** Partial exit (e.g., sell 50% at target)
+2. **Step 2:** Final exit (e.g., sell remaining 50% at higher target or stop loss)
+
+**System Tracking:**
+- Tracks which sell step each transaction represents
+- Helps review profit-booking discipline
+- Maintains transaction history per step
+
+**Example:**
+```
+INFY - Sell Strategy
+Step 1: Sell 50 shares @ ₹1,650 (50% position)
+Step 2: Sell 50 shares @ ₹1,720 (remaining 50%)
+
+→ Locked profits at two different levels
+→ Average sell price: ₹1,685
+```
+
+---
+
+### Parent Sector Grouping
+
+**Location:** Analytics → Parent Sector Management
+
+**Purpose:** Group related child sectors under parent sectors to enforce diversification limits
+
+#### What Are Parent Sectors?
+
+**Concept:** Multiple child sectors can belong to one parent sector
+- **Parent:** Auto
+  - **Child:** Automobile, Auto Components, Auto Ancillaries
+- **Parent:** Banking
+  - **Child:** Banking, Finance, NBFCs
+- **Parent:** IT
+  - **Child:** IT Services, IT Software
+
+#### Stock Count Limits per Parent Sector
+
+**Default:** Maximum **2 stocks** per parent sector
+
+**Why?** Prevents over-concentration in related industries
+
+**Example Scenario:**
+```
+❌ BAD (before parent sectors):
+- MARUTI (Automobile)
+- TATA MOTORS (Automobile)
+- MOTHERSON SUMI (Auto Components)
+- MRF (Auto Components)
+→ 4 auto-related stocks, high correlation risk
+
+✅ GOOD (with parent sector limit):
+Parent Sector: Auto (max 2 stocks)
+- MARUTI (Automobile)
+- MOTHERSON SUMI (Auto Components)
+→ System warns if you try to add 3rd auto-related stock
+```
+
+#### Managing Parent Sectors
+
+**Add Mapping:**
+1. Go to Analytics → Parent Sector Management
+2. Click "Add Mapping"
+3. Enter child sector name (e.g., "Auto Components")
+4. Enter parent sector (e.g., "Auto")
+
+**Common Mappings (Pre-loaded):**
+- Auto: Automobile, Auto Components, Auto Ancillaries
+- Banking: Banking, Finance
+- IT: IT Services, IT Software
+- Pharma: Pharmaceuticals, Healthcare
+- FMCG: FMCG, Consumer Goods
+- Industrials: Capital Goods, Infrastructure, Construction
+- Chemicals: Chemicals, Specialty Chemicals
+- Metals: Metals, Steel
+- Energy: Energy, Power, Oil & Gas
+
+**Stock Tracker Integration:**
+- When adding stocks, see parent sector in dropdown helper text
+- System validates you don't exceed max stocks per parent
+
+---
+
+### Advanced Market Cap Limits (Three-Tier System)
+
+**Location:** Settings → Stock Portfolio Settings
+
+**Purpose:** Enforce strict caps at three levels: per-stock %, stock count, and portfolio %
+
+#### Level 1: Per-Stock % Limits
+
+**Actual Max % (used in rebalancing logic):**
+- **Large Cap:** 5% max per stock
+- **Mid Cap:** 3% max per stock
+- **Small Cap:** 2.5% max per stock
+- **Micro Cap:** 2% max per stock
+
+**Display % (shown in UI with 0.5% leverage):**
+- **Large Cap:** 5.5% display
+- **Mid Cap:** 3.5% display
+- **Small Cap:** 3% display
+- **Micro Cap:** 2.5% display
+
+**Why Leverage?** Gives you breathing room of +0.5% before hitting rebalancing alert
+
+**Example:**
+```
+TCS (Large Cap):
+- Current: 5.2% of portfolio
+- Display limit: 5.5%
+- Status: ✅ Green (within acceptable range)
+
+If it reaches 5.6%:
+- Status: ⚠️ Red (exceeds limit, rebalance needed)
+```
+
+#### Level 2: Stock Count Limits per Market Cap
+
+**Defaults:**
+- **Large Cap:** Max **15 stocks**
+- **Mid Cap:** Max **8 stocks**
+- **Small Cap:** Max **7 stocks**
+- **Micro Cap:** Max **3 stocks**
+
+**Purpose:** Prevent portfolio from becoming too fragmented or concentrated
+
+**Example:**
+```
+Current Holdings:
+- Large Cap: 12/15 stocks ✅
+- Mid Cap: 9/8 stocks ⚠️ (1 over limit)
+- Small Cap: 5/7 stocks ✅
+- Micro Cap: 2/3 stocks ✅
+
+→ Recommendations page shows: Reduce 1 Mid Cap stock
+```
+
+#### Level 3: Portfolio % Limits per Market Cap
+
+**Defaults:**
+- **Large Cap:** Max **50%** of total portfolio
+- **Mid Cap:** Max **30%** of total portfolio
+- **Small Cap:** Max **25%** of total portfolio
+- **Micro Cap:** Max **10%** of total portfolio
+
+**Purpose:** Maintain balanced exposure across market cap sizes
+
+**Example:**
+```
+Projected Portfolio: ₹50,00,000
+
+Current Allocation:
+- Large Cap: ₹28,00,000 (56%) ⚠️ Exceeds 50% limit
+- Mid Cap: ₹12,00,000 (24%) ✅
+- Small Cap: ₹8,00,000 (16%) ✅
+- Micro Cap: ₹3,00,000 (6%) ✅
+
+→ Recommendations: Reduce Large Cap by ₹3,00,000 (6%)
+```
+
+#### Max Total Stocks in Portfolio
+
+**Default:** **30 stocks maximum**
+
+**Purpose:** Prevent over-diversification (too many stocks = hard to track)
+
+**Alert:**
+```
+Current Holdings: 32 stocks
+Max Limit: 30 stocks
+
+⚠️ Portfolio exceeds total stock limit
+→ Consider consolidating or closing underperformers
+```
+
+---
+
+### Enhanced Recommendations Page
+
+**Location:** Recommendations Tab
+
+#### Sector Rebalancing (Attention-Sorted)
+
+**New Sorting:** Cards now appear by **attention level**
+- 🔴 **Red** (overweight) → shown first
+- 🟡 **Yellow** (moderate overweight) → shown next
+- 🟢 **Green** (balanced/underweight) → shown last
+
+**Why?** See problem sectors first, action items at top
+
+**Example Display:**
+```
+🔴 Auto (Parent Sector)
+   3/2 stocks (1 over limit)
+   ₹8,50,000 invested
+   → Reduce 1 stock
+
+🟡 Banking
+   2/2 stocks (at limit)
+   ₹12,00,000 invested
+   → Monitor performance
+
+🟢 IT
+   1/2 stocks
+   ₹6,00,000 invested
+   → Balanced - can add 1 more
+```
+
+#### Market Cap Rebalancing (Three-Tier Insights)
+
+**Enhanced Display:** Shows violations across all three limit types
+
+**Card Format:**
+```
+Large Cap
+─────────────────────────────
+Stocks: 12/15 ✅
+Portfolio %: 28.5%/50% ✅
+Per-stock limit: 5%
+
+Current Holdings (12 stocks):
+TCS, INFY, RELIANCE, HDFC BANK, ICICI BANK, ...
+
+Recommendations:
+✅ Balanced - 12/15 stocks, 28.5%/50% portfolio
+   Can add up to 3 more stocks
+```
+
+**Violation Example:**
+```
+Mid Cap
+─────────────────────────────
+Stocks: 10/8 ⚠️
+Portfolio %: 35.2%/30% ⚠️
+Per-stock limit: 3%
+
+Current Holdings (10 stocks):
+STOCK1, STOCK2, ... STOCK10
+
+Recommendations:
+⚠️ Stock count: 10/8 (reduce 2)
+⚠️ Portfolio %: 35.2%/30% (over by 5.2%)
+→ Reduce 2 stocks or ₹2,60,000 in holdings
+```
+
+---
+
+### Key Benefits of Swing Trading Features
+
+1. **📊 Projected Planning:** Plan future portfolio, not just track current
+2. **📈 Systematic Entries/Exits:** Track multi-step buy/sell discipline
+3. **🎯 Parent Sector Limits:** Avoid correlation risk across related sectors
+4. **⚖️ Three-Tier Caps:** Enforce limits at per-stock, count, and portfolio levels
+5. **🚨 Attention Sorting:** See problem areas first in rebalancing
+6. **💡 Actionable Insights:** Exact stock counts and amounts to adjust
+
+---
+
+### Configuration (Settings Page)
+
+**Stock Portfolio Settings Section:**
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| Projected Portfolio Amount | ₹0 | Target portfolio value |
+| Target Date | - | When to reach target |
+| **Per-Stock Limits** | | |
+| Large Cap Max % | 5% (display 5.5%) | Per-stock ceiling |
+| Mid Cap Max % | 3% (display 3.5%) | Per-stock ceiling |
+| Small Cap Max % | 2.5% (display 3%) | Per-stock ceiling |
+| Micro Cap Max % | 2% (display 2.5%) | Per-stock ceiling |
+| **Stock Count Limits** | | |
+| Max Large Cap Stocks | 15 | Stock count cap |
+| Max Mid Cap Stocks | 8 | Stock count cap |
+| Max Small Cap Stocks | 7 | Stock count cap |
+| Max Micro Cap Stocks | 3 | Stock count cap |
+| **Portfolio % Limits** | | |
+| Max Large Cap Portfolio % | 50% | Total exposure cap |
+| Max Mid Cap Portfolio % | 30% | Total exposure cap |
+| Max Small Cap Portfolio % | 25% | Total exposure cap |
+| Max Micro Cap Portfolio % | 10% | Total exposure cap |
+| **Sector Limits** | | |
+| Max Stocks per Parent Sector | 2 | Diversification rule |
+| Max Total Stocks | 30 | Overall portfolio cap |
+
+**All settings are fully configurable** - adjust to your risk profile and trading style!
 
 ---
 
@@ -644,6 +994,310 @@ See [FUTURE_FEATURES.md](FUTURE_FEATURES.md) for planned features and improvemen
 
 ---
 
+---
+
+## Phase 3: Enhanced Financial Features
+
+**New in November 2025:** Comprehensive financial health tracking and cross-asset portfolio management.
+
+### Financial Health Dashboard
+
+**Location:** Health tab → Financial Health section
+
+Track your complete financial wellness with metrics used by financial planners:
+
+#### Overall Financial Health Score
+**What:** Composite score (0-100) based on multiple factors  
+**Components:**
+- Net worth growth
+- Asset allocation balance
+- Debt-to-income ratio
+- Emergency fund adequacy
+- Savings rate
+
+**Color Coding:**
+- 🟢 **75-100:** Excellent financial health
+- 🟡 **50-74:** Good, room for improvement
+- 🔴 **0-49:** Needs attention
+
+#### Debt-to-Income Ratio
+**What:** Percentage of your income going to debt payments  
+**Formula:** `(Total Debt Payments / Monthly Income) × 100`
+
+**Interpretation:**
+- **<20%:** Excellent - healthy debt load
+- **20-35%:** Good - manageable debt
+- **36-49%:** Fair - higher debt burden
+- **>50%:** Poor - debt is overwhelming
+
+**Example:**
+- Monthly income: ₹1,00,000
+- Debt payments (loans, credit cards): ₹25,000
+- Debt-to-income ratio: **25% (Good)**
+
+#### Emergency Fund Status
+**What:** Months of expenses covered by liquid savings  
+**Formula:** `Total Liquid Savings / Average Monthly Expenses`
+
+**Recommendation:**
+- **Minimum:** 3-6 months of expenses
+- **Ideal:** 6-12 months
+- **If self-employed:** 12+ months
+
+**Tracked Accounts:**
+- Savings accounts
+- Cash equivalents
+- Excludes: FD, EPF, NPS (illiquid)
+
+**Example:**
+- Liquid savings: ₹4,50,000
+- Monthly expenses: ₹75,000
+- Emergency fund: **6 months (Ideal)**
+
+#### Savings Rate
+**What:** Percentage of income you're saving  
+**Formula:** `[(Income - Expenses) / Income] × 100`
+
+**Benchmarks:**
+- **<10%:** Below average - increase savings
+- **10-20%:** Good - standard savings rate
+- **20-30%:** Excellent - high savings
+- **>30%:** Exceptional - aggressive savings
+
+**Tracked Period:** Last 30, 90, or 365 days
+
+**Example:**
+- Monthly income: ₹1,50,000
+- Monthly expenses: ₹1,05,000
+- Savings: ₹45,000
+- Savings rate: **30% (Excellent)**
+
+---
+
+### Unified Portfolio XIRR
+
+**Location:** Dashboard tab → Portfolio Returns section
+
+**What:** Single return percentage across ALL your assets (stocks, mutual funds, FDs, EPF, NPS, etc.)
+
+**Why It Matters:**  
+- Traditional XIRR only tracks one asset type
+- Unified XIRR shows TRUE portfolio performance
+- Accounts for timing of ALL cash flows
+
+**Calculation:**
+- Combines cash flows from all asset types
+- Uses Newton-Raphson method for accuracy
+- Accounts for buy/sell timing across years
+
+**Example:**
+```
+Stocks:     12.5% XIRR (₹10L invested)
+Mutual Funds: 15.8% XIRR (₹8L invested)
+Fixed Deposits: 7.5% XIRR (₹5L invested)
+
+Unified XIRR: 12.1% (weighted by investments & timing)
+```
+
+**Features:**
+- Overall portfolio XIRR
+- Breakdown by asset type
+- Visual charts showing contribution
+- Export to CSV for analysis
+
+---
+
+### Global Settings & Allocation Targets
+
+**Location:** Settings tab → Global Settings
+
+Set portfolio targets and let the system track compliance:
+
+#### Asset Allocation Targets
+**Configure:**
+- Maximum equity allocation (e.g., 70%)
+- Maximum debt allocation (e.g., 30%)
+- Minimum cash reserves (e.g., 10%)
+
+**System Response:**
+- Tracks current vs target allocation
+- Highlights when over/under limits
+- Provides rebalancing suggestions
+
+**Example Setup:**
+```
+Max Equity: 70%
+Max Debt: 30%
+Min Cash: 10%
+
+Current State:
+Equity: 75% ⚠️ (5% over target)
+Debt: 20% ✅ (within target)
+Cash: 5% ⚠️ (5% below target)
+
+→ System suggests: Reduce equity, increase cash
+```
+
+#### Budget & Emergency Fund Settings
+**Configure:**
+- Monthly income target
+- Monthly expense budget
+- Minimum emergency fund (months)
+
+**System Tracking:**
+- Alerts when expenses exceed budget
+- Tracks progress toward emergency fund goal
+- Monthly budget compliance reports
+
+#### Currency & Display Preferences
+- Currency symbol (₹, $, €, etc.)
+- Number formatting
+- Date format preferences
+
+---
+
+### Multi-Asset Net Worth Tracking
+
+**Location:** Dashboard tab
+
+**What:** Total net worth across ALL asset categories  
+**Categories Tracked:**
+1. **Equity:** Stocks, Equity Mutual Funds
+2. **Debt:** FDs, Debt Funds, Bonds
+3. **Retirement:** EPF, NPS
+4. **Cash:** Savings accounts
+5. **Other:** Gold, Lending, Crypto, etc.
+
+**Features:**
+- Total net worth (real-time)
+- Breakdown by asset class
+- Pie chart visualization
+- Trend over time
+- Export to Excel/CSV
+
+**Example Display:**
+```
+Total Net Worth: ₹45,50,000
+
+Equity: ₹20,00,000 (44%)
+Debt: ₹12,00,000 (26%)
+Retirement: ₹8,00,000 (18%)
+Cash: ₹3,50,000 (8%)
+Other: ₹2,00,000 (4%)
+```
+
+---
+
+### Cash Flow Analysis
+
+**Location:** Dashboard tab → Cash Flow section
+
+**What:** Visual breakdown of income vs expenses
+
+**Features:**
+- Monthly income tracking
+- Expense categorization
+- Surplus/deficit calculation
+- Trend analysis (3, 6, 12 months)
+- Category-wise spending breakdown
+
+**Visualizations:**
+- Bar chart: Income vs Expenses by month
+- Pie chart: Expense categories
+- Line chart: Savings trend over time
+
+**Example Insights:**
+- "Your spending increased 15% in October"
+- "Food & Dining is 25% of total expenses"
+- "You saved ₹45,000 this month (30% of income)"
+
+---
+
+### Budget Tracking & Alerts
+
+**Location:** Income & Expenses tab → Budgets section
+
+**What:** Set spending limits by category and track compliance
+
+**Features:**
+- Category-level budgets (Food, Transport, Entertainment, etc.)
+- Monthly or annual periods
+- Real-time spend tracking
+- Visual progress bars
+- Alerts when approaching limits
+
+**Budget Status:**
+```
+Food & Dining: ₹15,000 / ₹20,000 (75% used) ✅
+Transport: ₹8,500 / ₹8,000 (106% used) ⚠️
+Entertainment: ₹3,000 / ₹5,000 (60% used) ✅
+
+→ Alert: Transport budget exceeded by ₹500
+```
+
+**Smart Features:**
+- Rollover unused budget (optional)
+- Trend comparison (this month vs last month)
+- Spending patterns analysis
+- Budget optimization suggestions
+
+---
+
+## How to Use Phase 3 Features
+
+### Setup (One-time, 10 minutes)
+
+1. **Configure Global Settings**
+   - Go to Settings → Global Settings
+   - Set allocation targets (equity/debt/cash %)
+   - Set emergency fund goal (months)
+   - Set income/expense targets
+
+2. **Add All Your Assets**
+   - Stocks → Portfolio tab
+   - Mutual Funds → Mutual Funds tab
+   - FDs, EPF, NPS → Fixed Income tab
+   - Savings, Lending → Accounts tab
+
+3. **Track Income & Expenses**
+   - Add income transactions
+   - Add expense transactions
+   - Create category budgets
+
+### Daily Use
+
+1. **Check Dashboard**
+   - View total net worth
+   - Check unified XIRR
+   - Review cash flow
+
+2. **Monitor Health**
+   - Financial health score
+   - Debt-to-income ratio
+   - Emergency fund status
+   - Savings rate
+
+3. **Stay on Budget**
+   - Check budget compliance
+   - Review spending alerts
+   - Adjust as needed
+
+---
+
+## Phase 3 vs Phase 1-2: What's New?
+
+| Feature | Phase 1-2 | Phase 3 |
+|---------|-----------|---------|
+| **Assets Tracked** | Stocks only | Stocks, MF, FD, EPF, NPS, Savings, Lending, Gold, etc. |
+| **XIRR** | Stocks only | Unified across ALL assets |
+| **Net Worth** | Portfolio value | Complete net worth (all assets) |
+| **Health Metrics** | Portfolio concentration | Financial health score, debt-to-income, emergency fund |
+| **Budgeting** | Not available | Full category-wise budgets & alerts |
+| **Allocation** | Market cap/sector | Cross-asset allocation (equity/debt/cash) |
+| **Goals** | Manual tracking | Automated target tracking & compliance |
+
+---
+
 ## FAQs
 
 ### Q: What if I don't have a total portfolio amount set?
@@ -804,9 +1458,22 @@ Expandable accordions for:
 
 ---
 
-## Recent Improvements (October 2025)
+## Recent Improvements
 
-### Configuration Management
+### November 2025: Swing Trading Enhancement
+
+- ✅ **Projected Portfolio Amount** with target date
+- ✅ **Multi-step buy/sell tracking** (3 buy steps, 2 sell steps)
+- ✅ **Parent sector grouping** with stock count limits
+- ✅ **Three-tier market cap limits** (per-stock %, stock count, portfolio %)
+- ✅ **Attention-sorted rebalancing** (red → yellow → green)
+- ✅ **Enhanced market cap insights** with violation tracking
+- ✅ **Parent sector management UI** in Analytics
+- ✅ **Configurable stock limits** for all market caps
+- ✅ **Max total stocks setting** to prevent over-diversification
+
+### October 2025: Configuration Management
+
 - ✅ Centralized portfolio settings in Settings page
 - ✅ User-configurable allocation thresholds
 - ✅ Removed redundant Total Portfolio Amount from Portfolio page
@@ -831,5 +1498,5 @@ Expandable accordions for:
 
 ---
 
-*Last Updated: October 31, 2025*
+*Last Updated: November 29, 2025*
 

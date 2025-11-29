@@ -62,10 +62,10 @@ class DatabaseMigrator:
                 sql += f" DEFAULT {default_value}"
             
             self.cursor.execute(sql)
-            print(f"  [✓] Added column '{column_name}' to '{table_name}'")
+            print(f"  [OK] Added column '{column_name}' to '{table_name}'")
             return True
         except sqlite3.Error as e:
-            print(f"  [✗] Failed to add column '{column_name}': {e}")
+            print(f"  [ERROR] Failed to add column '{column_name}': {e}")
             return False
     
     def migrate_stocks_table(self):
@@ -110,7 +110,7 @@ class DatabaseMigrator:
                     changes_made = True
         
         if not changes_made:
-            print("  [✓] Stocks table is up to date")
+            print("  [OK] Stocks table is up to date")
     
     def convert_zone_columns_to_varchar(self):
         """Convert zone price columns from numeric to VARCHAR to support ranges"""
@@ -151,11 +151,11 @@ class DatabaseMigrator:
             self.cursor.execute('DROP TABLE stocks')
             self.cursor.execute('ALTER TABLE stocks_new RENAME TO stocks')
             
-            print("  [✓] Zone columns converted to support ranges (e.g., '250-300')")
+            print("  [OK] Zone columns converted to support ranges (e.g., '250-300')")
             return True
         
         except sqlite3.Error as e:
-            print(f"  [✗] Failed to convert zone columns: {e}")
+            print(f"  [ERROR] Failed to convert zone columns: {e}")
             return False
     
     def migrate_portfolio_settings_table(self):
@@ -163,7 +163,7 @@ class DatabaseMigrator:
         print("\n[PORTFOLIO SETTINGS TABLE MIGRATION]")
         
         if self.table_exists('portfolio_settings'):
-            print("  [✓] Portfolio settings table exists")
+            print("  [OK] Portfolio settings table exists")
             return
         
         try:
@@ -174,9 +174,120 @@ class DatabaseMigrator:
                     updated_at DATETIME
                 )
             ''')
-            print("  [✓] Created portfolio_settings table")
+            print("  [OK] Created portfolio_settings table")
         except sqlite3.Error as e:
-            print(f"  [✗] Failed to create portfolio_settings table: {e}")
+            print(f"  [ERROR] Failed to create portfolio_settings table: {e}")
+    
+    def migrate_mutual_funds_table(self):
+        """Migrate mutual_funds table to make scheme_code optional"""
+        print("\n[MUTUAL FUNDS TABLE MIGRATION]")
+        
+        if not self.table_exists('mutual_funds'):
+            print("  [INFO] 'mutual_funds' table doesn't exist yet - will be created on first run")
+            return
+        
+        # Check if scheme_code is currently NOT NULL
+        self.cursor.execute("PRAGMA table_info(mutual_funds)")
+        columns = {col[1]: {'type': col[2], 'notnull': col[3]} for col in self.cursor.fetchall()}
+        
+        if 'scheme_code' in columns and columns['scheme_code']['notnull'] == 1:
+            print("  [INFO] Updating mutual_funds table to make scheme_code optional...")
+            try:
+                # SQLite doesn't support modifying column constraints directly
+                # We need to recreate the table
+                self.cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS mutual_funds_new (
+                        id INTEGER PRIMARY KEY,
+                        scheme_code VARCHAR(20) UNIQUE,
+                        scheme_name VARCHAR(200) NOT NULL,
+                        fund_house VARCHAR(100),
+                        category VARCHAR(50),
+                        sub_category VARCHAR(100),
+                        current_nav FLOAT,
+                        day_change_pct FLOAT,
+                        expense_ratio FLOAT,
+                        last_updated DATETIME,
+                        notes TEXT
+                    )
+                ''')
+                
+                # Copy data from old table
+                self.cursor.execute('''
+                    INSERT INTO mutual_funds_new 
+                    SELECT * FROM mutual_funds
+                ''')
+                
+                # Drop old table and rename new one
+                self.cursor.execute('DROP TABLE mutual_funds')
+                self.cursor.execute('ALTER TABLE mutual_funds_new RENAME TO mutual_funds')
+                
+                print("  [OK] Updated mutual_funds table - scheme_code is now optional")
+            except sqlite3.Error as e:
+                print(f"  [ERROR] Failed to update mutual_funds table: {e}")
+        else:
+            print("  [OK] Mutual funds table is up to date")
+    
+    def migrate_mutual_fund_transactions_table(self):
+        """Migrate mutual_fund_transactions table to add scheme_id and make scheme_code nullable"""
+        print("\n[MUTUAL FUND TRANSACTIONS TABLE MIGRATION]")
+        
+        if not self.table_exists('mutual_fund_transactions'):
+            print("  [INFO] 'mutual_fund_transactions' table doesn't exist yet - will be created on first run")
+            return
+        
+        changes_made = False
+        
+        # Add scheme_id column if missing
+        if self.add_column_if_missing('mutual_fund_transactions', 'scheme_id', 'INTEGER'):
+            changes_made = True
+        
+        # Check if scheme_code is currently NOT NULL
+        self.cursor.execute("PRAGMA table_info(mutual_fund_transactions)")
+        columns = {col[1]: {'type': col[2], 'notnull': col[3]} for col in self.cursor.fetchall()}
+        
+        if 'scheme_code' in columns and columns['scheme_code']['notnull'] == 1:
+            print("  [INFO] Updating mutual_fund_transactions table to make scheme_code optional...")
+            try:
+                # SQLite doesn't support modifying column constraints directly
+                # We need to recreate the table
+                self.cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS mutual_fund_transactions_new (
+                        id INTEGER PRIMARY KEY,
+                        scheme_id INTEGER,
+                        scheme_code VARCHAR(20),
+                        scheme_name VARCHAR(200) NOT NULL,
+                        transaction_type VARCHAR(10) NOT NULL,
+                        units FLOAT NOT NULL,
+                        nav FLOAT NOT NULL,
+                        amount FLOAT NOT NULL,
+                        transaction_date DATETIME NOT NULL,
+                        is_sip BOOLEAN DEFAULT 0,
+                        sip_id VARCHAR(50),
+                        reason TEXT,
+                        notes TEXT,
+                        created_at DATETIME
+                    )
+                ''')
+                
+                # Copy data from old table
+                self.cursor.execute('''
+                    INSERT INTO mutual_fund_transactions_new 
+                    SELECT id, NULL as scheme_id, scheme_code, scheme_name, transaction_type, 
+                           units, nav, amount, transaction_date, is_sip, sip_id, reason, notes, created_at
+                    FROM mutual_fund_transactions
+                ''')
+                
+                # Drop old table and rename new one
+                self.cursor.execute('DROP TABLE mutual_fund_transactions')
+                self.cursor.execute('ALTER TABLE mutual_fund_transactions_new RENAME TO mutual_fund_transactions')
+                
+                print("  [OK] Updated mutual_fund_transactions table - added scheme_id, made scheme_code optional")
+                changes_made = True
+            except sqlite3.Error as e:
+                print(f"  [ERROR] Failed to update mutual_fund_transactions table: {e}")
+        
+        if not changes_made:
+            print("  [OK] Mutual fund transactions table is up to date")
     
     def migrate_all(self):
         """Run all migrations"""
@@ -193,6 +304,8 @@ class DatabaseMigrator:
             # Run all table migrations
             self.migrate_stocks_table()
             self.migrate_portfolio_settings_table()
+            self.migrate_mutual_funds_table()
+            self.migrate_mutual_fund_transactions_table()
             
             # Commit all changes
             self.conn.commit()
@@ -229,9 +342,14 @@ class DatabaseMigrator:
 
 def main():
     """Main migration entry point"""
-    print("\n⚠️  IMPORTANT: Close the Flask app before running migrations!\n")
+    import sys
     
-    migrator = DatabaseMigrator()
+    print("\nIMPORTANT: Close the Flask app before running migrations!\n")
+    
+    # Allow custom database path
+    db_path = sys.argv[1] if len(sys.argv) > 1 else 'instance/investment_manager.db'
+    
+    migrator = DatabaseMigrator(db_path)
     
     # Create backup before migration
     migrator.backup_database()

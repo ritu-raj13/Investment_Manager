@@ -4,7 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import login_user, logout_user, current_user
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from datetime import datetime
+from datetime import datetime, timezone
 import yfinance as yf
 from typing import List, Dict
 import os
@@ -29,9 +29,11 @@ from utils import (
     is_in_zone,
     format_refresh_response,
     clean_symbol,
-    calculate_portfolio_xirr
+    calculate_portfolio_xirr,
+    create_startup_backup
 )
 from services import get_nse_price, get_scraped_price, get_stock_details
+from services.mf_api import fetch_mf_nav_by_name, fetch_mf_nav, get_mf_scheme_details
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -72,7 +74,7 @@ class Stock(db.Model):
     status = db.Column(db.String(20))  # "BUY", "SELL", "AVERAGE", "HOLD"
     current_price = db.Column(db.Float)
     day_change_pct = db.Column(db.Float)  # 1-day change percentage
-    last_updated = db.Column(db.DateTime, default=datetime.utcnow)
+    last_updated = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     notes = db.Column(db.Text)
     
     def to_dict(self):
@@ -103,10 +105,13 @@ class PortfolioTransaction(db.Model):
     transaction_type = db.Column(db.String(10), nullable=False)  # "BUY" or "SELL"
     quantity = db.Column(db.Float, nullable=False)
     price = db.Column(db.Float, nullable=False)
+    buy_step = db.Column(db.Integer, nullable=True)  # 1, 2, or 3 for multi-step buying
+    sell_step = db.Column(db.Integer, nullable=True)  # 1 or 2 for multi-step selling
+    avg_price_after = db.Column(db.Float, nullable=True)  # Average price after this transaction
     transaction_date = db.Column(db.DateTime, nullable=False)
     reason = db.Column(db.Text)
     notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     
     def to_dict(self):
         return {
@@ -116,6 +121,9 @@ class PortfolioTransaction(db.Model):
             'transaction_type': self.transaction_type,
             'quantity': self.quantity,
             'price': self.price,
+            'buy_step': self.buy_step,
+            'sell_step': self.sell_step,
+            'avg_price_after': self.avg_price_after,
             'transaction_date': self.transaction_date.isoformat(),
             'reason': self.reason,
             'notes': self.notes,
@@ -127,23 +135,521 @@ class PortfolioSettings(db.Model):
     __tablename__ = 'portfolio_settings'
     
     id = db.Column(db.Integer, primary_key=True)
-    total_amount = db.Column(db.Float, default=0.0)  # Manual total portfolio amount for % calculation
-    max_large_cap_pct = db.Column(db.Float, default=50.0)  # Max % allocation for Large Cap
-    max_mid_cap_pct = db.Column(db.Float, default=30.0)  # Max % allocation for Mid Cap
-    max_small_cap_pct = db.Column(db.Float, default=25.0)  # Max % allocation for Small Cap
-    max_micro_cap_pct = db.Column(db.Float, default=15.0)  # Max % allocation for Micro Cap
-    max_sector_pct = db.Column(db.Float, default=20.0)  # Max % allocation per sector
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    projected_portfolio_amount = db.Column(db.Float, default=0.0)  # Projected portfolio target amount for % calculation
+    target_date = db.Column(db.Date, nullable=True)  # Target date for projected portfolio amount
+    
+    # Per-stock allocation limits (% of projected portfolio per individual stock)
+    max_large_cap_pct = db.Column(db.Float, default=5.0)  # Max % per stock for Large Cap (actual: 5%, display: 5.5%)
+    max_mid_cap_pct = db.Column(db.Float, default=3.0)  # Max % per stock for Mid Cap (actual: 3%, display: 3.5%)
+    max_small_cap_pct = db.Column(db.Float, default=2.5)  # Max % per stock for Small Cap (actual: 2.5%, display: 3%)
+    max_micro_cap_pct = db.Column(db.Float, default=2.0)  # Max % per stock for Micro Cap (actual: 2%, display: 2.5%)
+    
+    # Market cap stock count limits (max number of stocks per market cap category)
+    max_large_cap_stocks = db.Column(db.Integer, default=15)  # Max stocks in Large Cap
+    max_mid_cap_stocks = db.Column(db.Integer, default=8)  # Max stocks in Mid Cap
+    max_small_cap_stocks = db.Column(db.Integer, default=7)  # Max stocks in Small Cap
+    max_micro_cap_stocks = db.Column(db.Integer, default=3)  # Max stocks in Micro Cap
+    
+    # Market cap portfolio allocation limits (total % of portfolio per market cap category)
+    max_large_cap_portfolio_pct = db.Column(db.Float, default=50.0)  # Max total % in Large Cap
+    max_mid_cap_portfolio_pct = db.Column(db.Float, default=30.0)  # Max total % in Mid Cap
+    max_small_cap_portfolio_pct = db.Column(db.Float, default=25.0)  # Max total % in Small Cap
+    max_micro_cap_portfolio_pct = db.Column(db.Float, default=10.0)  # Max total % in Micro Cap
+    
+    # Overall limits
+    max_stocks_per_sector = db.Column(db.Integer, default=2)  # Max number of stocks per parent sector
+    max_total_stocks = db.Column(db.Integer, default=30)  # Max total stocks in portfolio
+    
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     def to_dict(self):
         return {
             'id': self.id,
-            'total_amount': self.total_amount,
+            'projected_portfolio_amount': self.projected_portfolio_amount,
+            'target_date': self.target_date.isoformat() if self.target_date else None,
+            # Per-stock limits
             'max_large_cap_pct': self.max_large_cap_pct,
             'max_mid_cap_pct': self.max_mid_cap_pct,
             'max_small_cap_pct': self.max_small_cap_pct,
             'max_micro_cap_pct': self.max_micro_cap_pct,
-            'max_sector_pct': self.max_sector_pct,
+            # Stock count limits per market cap
+            'max_large_cap_stocks': self.max_large_cap_stocks,
+            'max_mid_cap_stocks': self.max_mid_cap_stocks,
+            'max_small_cap_stocks': self.max_small_cap_stocks,
+            'max_micro_cap_stocks': self.max_micro_cap_stocks,
+            # Portfolio % limits per market cap
+            'max_large_cap_portfolio_pct': self.max_large_cap_portfolio_pct,
+            'max_mid_cap_portfolio_pct': self.max_mid_cap_portfolio_pct,
+            'max_small_cap_portfolio_pct': self.max_small_cap_portfolio_pct,
+            'max_micro_cap_portfolio_pct': self.max_micro_cap_portfolio_pct,
+            # Overall limits
+            'max_stocks_per_sector': self.max_stocks_per_sector,
+            'max_total_stocks': self.max_total_stocks,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class ParentSectorMapping(db.Model):
+    __tablename__ = 'parent_sector_mappings'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    sector_name = db.Column(db.String(100), nullable=False, unique=True, index=True)  # Child sector (e.g., "Auto Components")
+    parent_sector = db.Column(db.String(100), nullable=False, index=True)  # Parent sector (e.g., "Auto")
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'sector_name': self.sector_name,
+            'parent_sector': self.parent_sector,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+# ============================================================================
+# Personal Finance Models - Multi-Asset Tracking
+# ============================================================================
+
+class MutualFund(db.Model):
+    __tablename__ = 'mutual_funds'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    scheme_code = db.Column(db.String(20), unique=True, nullable=True)
+    scheme_name = db.Column(db.String(200), nullable=False)
+    fund_house = db.Column(db.String(100))
+    category = db.Column(db.String(50))  # equity, debt, hybrid, other
+    sub_category = db.Column(db.String(100))  # large cap, mid cap, etc.
+    current_nav = db.Column(db.Float)
+    day_change_pct = db.Column(db.Float)
+    expense_ratio = db.Column(db.Float)
+    last_updated = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    notes = db.Column(db.Text)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'scheme_code': self.scheme_code,
+            'scheme_name': self.scheme_name,
+            'name': self.scheme_name,  # Frontend expects 'name'
+            'fund_house': self.fund_house,
+            'amc': self.fund_house,  # Frontend expects 'amc'
+            'category': self.category,
+            'sub_category': self.sub_category,
+            'current_nav': self.current_nav,
+            'nav': self.current_nav,  # Frontend expects 'nav'
+            'day_change_pct': self.day_change_pct,
+            'expense_ratio': self.expense_ratio,
+            'last_updated': self.last_updated.isoformat() if self.last_updated else None,
+            'notes': self.notes
+        }
+
+
+class MutualFundTransaction(db.Model):
+    __tablename__ = 'mutual_fund_transactions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    scheme_id = db.Column(db.Integer)  # Link to MutualFund table
+    scheme_code = db.Column(db.String(20))
+    scheme_name = db.Column(db.String(200), nullable=False)
+    transaction_type = db.Column(db.String(10), nullable=False)  # BUY, SELL, SWITCH
+    units = db.Column(db.Float, nullable=False)
+    nav = db.Column(db.Float, nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    transaction_date = db.Column(db.DateTime, nullable=False)
+    is_sip = db.Column(db.Boolean, default=False)
+    sip_id = db.Column(db.String(50))  # For grouping SIP transactions
+    reason = db.Column(db.Text)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'scheme_id': self.scheme_id,  # Frontend needs this
+            'scheme_code': self.scheme_code,
+            'scheme_name': self.scheme_name,
+            'transaction_type': self.transaction_type,
+            'units': self.units,
+            'nav': self.nav,
+            'amount': self.amount,
+            'transaction_date': self.transaction_date.strftime('%Y-%m-%d') if self.transaction_date else None,  # Backend format
+            'date': self.transaction_date.strftime('%Y-%m-%d') if self.transaction_date else None,  # Frontend format
+            'is_sip': self.is_sip,
+            'sip_id': self.sip_id,
+            'reason': self.reason,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class FixedDeposit(db.Model):
+    __tablename__ = 'fixed_deposits'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    bank_name = db.Column(db.String(100), nullable=False)
+    account_number = db.Column(db.String(50))
+    principal_amount = db.Column(db.Float, nullable=False)
+    interest_rate = db.Column(db.Float, nullable=False)
+    start_date = db.Column(db.Date, nullable=False)
+    maturity_date = db.Column(db.Date, nullable=False)
+    interest_frequency = db.Column(db.String(20))  # monthly, quarterly, annually, at_maturity
+    maturity_amount = db.Column(db.Float)
+    status = db.Column(db.String(20), default='active')  # active, matured, closed
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'bank_name': self.bank_name,
+            'account_number': self.account_number,
+            'principal_amount': self.principal_amount,
+            'interest_rate': self.interest_rate,
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'maturity_date': self.maturity_date.isoformat() if self.maturity_date else None,
+            'interest_frequency': self.interest_frequency,
+            'maturity_amount': self.maturity_amount,
+            'status': self.status,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class EPFAccount(db.Model):
+    __tablename__ = 'epf_accounts'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    employer_name = db.Column(db.String(100), nullable=False)
+    uan_number = db.Column(db.String(50))
+    opening_balance = db.Column(db.Float, default=0.0)
+    opening_date = db.Column(db.Date)
+    current_balance = db.Column(db.Float, default=0.0)
+    last_updated = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    interest_rate = db.Column(db.Float)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'employer_name': self.employer_name,
+            'uan_number': self.uan_number,
+            'opening_balance': self.opening_balance,
+            'opening_date': self.opening_date.isoformat() if self.opening_date else None,
+            'current_balance': self.current_balance,
+            'last_updated': self.last_updated.isoformat() if self.last_updated else None,
+            'interest_rate': self.interest_rate,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class EPFContribution(db.Model):
+    __tablename__ = 'epf_contributions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    epf_account_id = db.Column(db.Integer, db.ForeignKey('epf_accounts.id'), nullable=False)
+    month_year = db.Column(db.String(20), nullable=False)  # Format: "2025-01"
+    employee_contribution = db.Column(db.Float, default=0.0)
+    employer_contribution = db.Column(db.Float, default=0.0)
+    interest_earned = db.Column(db.Float, default=0.0)
+    transaction_date = db.Column(db.Date, nullable=False)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'epf_account_id': self.epf_account_id,
+            'month_year': self.month_year,
+            'employee_contribution': self.employee_contribution,
+            'employer_contribution': self.employer_contribution,
+            'interest_earned': self.interest_earned,
+            'transaction_date': self.transaction_date.isoformat() if self.transaction_date else None,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class NPSAccount(db.Model):
+    __tablename__ = 'nps_accounts'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    pran_number = db.Column(db.String(50), unique=True, nullable=False)
+    scheme_type = db.Column(db.String(20))  # tier1, tier2
+    current_value = db.Column(db.Float, default=0.0)
+    units = db.Column(db.Float, default=0.0)
+    nav = db.Column(db.Float)
+    last_updated = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'pran_number': self.pran_number,
+            'scheme_type': self.scheme_type,
+            'current_value': self.current_value,
+            'units': self.units,
+            'nav': self.nav,
+            'last_updated': self.last_updated.isoformat() if self.last_updated else None,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class NPSContribution(db.Model):
+    __tablename__ = 'nps_contributions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    nps_account_id = db.Column(db.Integer, db.ForeignKey('nps_accounts.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    nav = db.Column(db.Float)
+    units = db.Column(db.Float)
+    transaction_date = db.Column(db.Date, nullable=False)
+    contribution_type = db.Column(db.String(20))  # self, employer
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'nps_account_id': self.nps_account_id,
+            'amount': self.amount,
+            'nav': self.nav,
+            'units': self.units,
+            'transaction_date': self.transaction_date.isoformat() if self.transaction_date else None,
+            'contribution_type': self.contribution_type,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class SavingsAccount(db.Model):
+    __tablename__ = 'savings_accounts'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    bank_name = db.Column(db.String(100), nullable=False)
+    account_number = db.Column(db.String(50), nullable=False)
+    account_type = db.Column(db.String(20))  # savings, current
+    current_balance = db.Column(db.Float, default=0.0)
+    interest_rate = db.Column(db.Float)
+    last_updated = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'bank_name': self.bank_name,
+            'account_number': self.account_number,
+            'account_type': self.account_type,
+            'current_balance': self.current_balance,
+            'interest_rate': self.interest_rate,
+            'last_updated': self.last_updated.isoformat() if self.last_updated else None,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class SavingsTransaction(db.Model):
+    __tablename__ = 'savings_transactions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('savings_accounts.id'), nullable=False)
+    transaction_type = db.Column(db.String(20), nullable=False)  # deposit, withdrawal
+    amount = db.Column(db.Float, nullable=False)
+    balance_after = db.Column(db.Float)
+    transaction_date = db.Column(db.Date, nullable=False)
+    description = db.Column(db.String(200))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'account_id': self.account_id,
+            'transaction_type': self.transaction_type,
+            'amount': self.amount,
+            'balance_after': self.balance_after,
+            'transaction_date': self.transaction_date.isoformat() if self.transaction_date else None,
+            'description': self.description,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class LendingRecord(db.Model):
+    __tablename__ = 'lending_records'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    borrower_name = db.Column(db.String(100), nullable=False)
+    principal_amount = db.Column(db.Float, nullable=False)
+    interest_rate = db.Column(db.Float, default=0.0)
+    start_date = db.Column(db.Date, nullable=False)
+    tenure_months = db.Column(db.Integer)
+    monthly_emi = db.Column(db.Float)
+    total_repaid = db.Column(db.Float, default=0.0)
+    outstanding_amount = db.Column(db.Float)
+    status = db.Column(db.String(20), default='active')  # active, closed
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'borrower_name': self.borrower_name,
+            'principal_amount': self.principal_amount,
+            'interest_rate': self.interest_rate,
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'tenure_months': self.tenure_months,
+            'monthly_emi': self.monthly_emi,
+            'total_repaid': self.total_repaid,
+            'outstanding_amount': self.outstanding_amount,
+            'status': self.status,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class OtherInvestment(db.Model):
+    __tablename__ = 'other_investments'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    investment_type = db.Column(db.String(50), nullable=False)  # gold, bonds, crypto, real_estate, etc.
+    description = db.Column(db.String(200), nullable=False)
+    purchase_value = db.Column(db.Float, nullable=False)
+    current_value = db.Column(db.Float)
+    purchase_date = db.Column(db.Date)
+    last_updated = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'investment_type': self.investment_type,
+            'description': self.description,
+            'purchase_value': self.purchase_value,
+            'current_value': self.current_value,
+            'purchase_date': self.purchase_date.isoformat() if self.purchase_date else None,
+            'last_updated': self.last_updated.isoformat() if self.last_updated else None,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class IncomeTransaction(db.Model):
+    __tablename__ = 'income_transactions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    source = db.Column(db.String(50), nullable=False)  # salary, bonus, investment, rental, freelance, other
+    category = db.Column(db.String(100))
+    amount = db.Column(db.Float, nullable=False)
+    transaction_date = db.Column(db.Date, nullable=False)
+    is_recurring = db.Column(db.Boolean, default=False)
+    description = db.Column(db.String(200))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'source': self.source,
+            'category': self.category,
+            'amount': self.amount,
+            'transaction_date': self.transaction_date.isoformat() if self.transaction_date else None,
+            'is_recurring': self.is_recurring,
+            'description': self.description,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class ExpenseTransaction(db.Model):
+    __tablename__ = 'expense_transactions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    category = db.Column(db.String(50), nullable=False)  # housing, food, transport, utilities, etc.
+    subcategory = db.Column(db.String(100))
+    amount = db.Column(db.Float, nullable=False)
+    transaction_date = db.Column(db.Date, nullable=False)
+    payment_method = db.Column(db.String(50))  # cash, card, upi, bank_transfer
+    is_recurring = db.Column(db.Boolean, default=False)
+    description = db.Column(db.String(200))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'category': self.category,
+            'subcategory': self.subcategory,
+            'amount': self.amount,
+            'transaction_date': self.transaction_date.isoformat() if self.transaction_date else None,
+            'payment_method': self.payment_method,
+            'is_recurring': self.is_recurring,
+            'description': self.description,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class Budget(db.Model):
+    __tablename__ = 'budgets'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    category = db.Column(db.String(50), nullable=False)
+    monthly_limit = db.Column(db.Float)
+    annual_limit = db.Column(db.Float)
+    start_date = db.Column(db.Date)
+    end_date = db.Column(db.Date)
+    is_active = db.Column(db.Boolean, default=True)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'category': self.category,
+            'monthly_limit': self.monthly_limit,
+            'annual_limit': self.annual_limit,
+            'start_date': self.start_date.isoformat() if self.start_date else None,
+            'end_date': self.end_date.isoformat() if self.end_date else None,
+            'is_active': self.is_active,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class GlobalSettings(db.Model):
+    __tablename__ = 'global_settings'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    # Asset allocation targets
+    max_equity_allocation_pct = db.Column(db.Float, default=70.0)
+    max_debt_allocation_pct = db.Column(db.Float, default=30.0)
+    min_emergency_fund_months = db.Column(db.Integer, default=6)
+    
+    # Income/Expense targets
+    monthly_income_target = db.Column(db.Float, default=0.0)
+    monthly_expense_target = db.Column(db.Float, default=0.0)
+    
+    # Other settings
+    currency = db.Column(db.String(10), default='INR')
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'max_equity_allocation_pct': self.max_equity_allocation_pct,
+            'max_debt_allocation_pct': self.max_debt_allocation_pct,
+            'min_emergency_fund_months': self.min_emergency_fund_months,
+            'monthly_income_target': self.monthly_income_target,
+            'monthly_expense_target': self.monthly_expense_target,
+            'currency': self.currency,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
@@ -455,7 +961,7 @@ def refresh_alert_stocks():
                 price = get_scraped_price(stock.symbol)
                 if price:
                     stock.current_price = round(price, 2)
-                    stock.last_updated = datetime.utcnow()
+                    stock.last_updated = datetime.now(timezone.utc)
                     updated = True
                     
                     # Try to get day_change_pct separately (optional, don't fail if it doesn't work)
@@ -476,7 +982,7 @@ def refresh_alert_stocks():
                     price = get_nse_price(stock.symbol)
                     if price:
                         stock.current_price = round(price, 2)
-                        stock.last_updated = datetime.utcnow()
+                        stock.last_updated = datetime.now(timezone.utc)
                         updated = True
                         print(f"[OK] NSE API: Updated {stock.symbol} -> Rs.{stock.current_price}")
                 except Exception as e:
@@ -485,10 +991,11 @@ def refresh_alert_stocks():
         # Fallback to yfinance
         if not updated:
             try:
-                price = get_yahoo_price(stock.symbol)
-                if price:
-                    stock.current_price = round(price, 2)
-                    stock.last_updated = datetime.utcnow()
+                ticker = yf.Ticker(stock.symbol)
+                info = ticker.history(period='1d')
+                if not info.empty:
+                    stock.current_price = round(info['Close'].iloc[-1], 2)
+                    stock.last_updated = datetime.now(timezone.utc)
                     updated = True
                     yahoo_count += 1
                     print(f"[OK] yfinance: Updated {stock.symbol} -> Rs.{stock.current_price}")
@@ -523,7 +1030,7 @@ def refresh_stock_prices():
                 price = get_scraped_price(stock.symbol)
                 if price:
                     stock.current_price = round(price, 2)
-                    stock.last_updated = datetime.utcnow()
+                    stock.last_updated = datetime.now(timezone.utc)
                     updated = True
                     
                     # Try to get day_change_pct separately (optional, don't fail if it doesn't work)
@@ -544,7 +1051,7 @@ def refresh_stock_prices():
                     price = get_nse_price(stock.symbol)
                     if price:
                         stock.current_price = round(price, 2)
-                        stock.last_updated = datetime.utcnow()
+                        stock.last_updated = datetime.now(timezone.utc)
                         updated = True
                         print(f"[OK] NSE API: Updated {stock.symbol} -> Rs.{stock.current_price}")
                 except:
@@ -557,7 +1064,7 @@ def refresh_stock_prices():
                 info = ticker.history(period='1d')
                 if not info.empty:
                     stock.current_price = round(info['Close'].iloc[-1], 2)
-                    stock.last_updated = datetime.utcnow()
+                    stock.last_updated = datetime.now(timezone.utc)
                     updated = True
                     print(f"[OK] Yahoo: Updated {stock.symbol} -> Rs.{stock.current_price}")
             except:
@@ -636,6 +1143,84 @@ def fetch_stock_details(symbol):
             'error': 'Failed to fetch stock details',
             'message': str(e)
         }), 500
+
+
+# ============================================================================
+# Parent Sector Mapping Routes (Auth required)
+# ============================================================================
+
+@app.route('/api/sectors/parent-mappings', methods=['GET'])
+@api_login_required
+def get_parent_sector_mappings():
+    """Get all parent sector mappings"""
+    mappings = ParentSectorMapping.query.order_by(ParentSectorMapping.parent_sector, ParentSectorMapping.sector_name).all()
+    return jsonify([m.to_dict() for m in mappings])
+
+
+@app.route('/api/sectors/parent-mappings', methods=['POST'])
+@api_login_required
+def create_parent_sector_mapping():
+    """Create or update a parent sector mapping"""
+    data = request.json
+    
+    sector_name = data.get('sector_name', '').strip()
+    parent_sector = data.get('parent_sector', '').strip()
+    
+    if not sector_name or not parent_sector:
+        return jsonify({'error': 'sector_name and parent_sector are required'}), 400
+    
+    # Check if mapping already exists
+    existing = ParentSectorMapping.query.filter_by(sector_name=sector_name).first()
+    
+    if existing:
+        # Update existing mapping
+        existing.parent_sector = parent_sector
+        existing.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        return jsonify(existing.to_dict())
+    else:
+        # Create new mapping
+        mapping = ParentSectorMapping(
+            sector_name=sector_name,
+            parent_sector=parent_sector
+        )
+        db.session.add(mapping)
+        db.session.commit()
+        return jsonify(mapping.to_dict()), 201
+
+
+@app.route('/api/sectors/parent-mappings/<int:mapping_id>', methods=['DELETE'])
+@api_login_required
+def delete_parent_sector_mapping(mapping_id):
+    """Delete a parent sector mapping"""
+    mapping = ParentSectorMapping.query.get_or_404(mapping_id)
+    db.session.delete(mapping)
+    db.session.commit()
+    return jsonify({'message': 'Parent sector mapping deleted successfully'})
+
+
+@app.route('/api/sectors/parent/<parent_name>/stocks', methods=['GET'])
+@api_login_required
+def get_stocks_by_parent_sector(parent_name):
+    """Get all stocks belonging to a parent sector"""
+    # Get all child sectors for this parent
+    mappings = ParentSectorMapping.query.filter_by(parent_sector=parent_name).all()
+    child_sectors = [m.sector_name for m in mappings]
+    
+    # Also include stocks with the exact parent sector name
+    child_sectors.append(parent_name)
+    
+    # Get stocks in these sectors
+    stocks = Stock.query.filter(Stock.sector.in_(child_sectors)).all()
+    return jsonify([s.to_dict() for s in stocks])
+
+
+@app.route('/api/sectors/parent-list', methods=['GET'])
+@api_login_required
+def get_parent_sectors_list():
+    """Get list of unique parent sectors"""
+    parents = db.session.query(ParentSectorMapping.parent_sector).distinct().all()
+    return jsonify([p[0] for p in parents if p[0]])
 
 
 # ============================================================================
@@ -720,6 +1305,40 @@ def create_transaction():
     if not is_valid:
         return jsonify({'error': error_message}), 400
     
+    # Validate buy/sell steps if provided
+    buy_step = data.get('buy_step')
+    sell_step = data.get('sell_step')
+    
+    if buy_step is not None:
+        buy_step = int(buy_step)
+        if buy_step < 1 or buy_step > 3:
+            return jsonify({'error': 'buy_step must be between 1 and 3'}), 400
+    
+    if sell_step is not None:
+        sell_step = int(sell_step)
+        if sell_step < 1 or sell_step > 2:
+            return jsonify({'error': 'sell_step must be between 1 and 2'}), 400
+    
+    # Calculate average price after this transaction (for BUY transactions)
+    avg_price_after = None
+    if data['transaction_type'].upper() == 'BUY':
+        symbol = clean_symbol(data['stock_symbol'])
+        # Get all previous BUY transactions for this stock
+        previous_buys = PortfolioTransaction.query.filter_by(
+            stock_symbol=symbol,
+            transaction_type='BUY'
+        ).all()
+        
+        total_qty = float(data['quantity'])
+        total_value = float(data['quantity']) * float(data['price'])
+        
+        for prev_tx in previous_buys:
+            total_qty += prev_tx.quantity
+            total_value += prev_tx.quantity * prev_tx.price
+        
+        if total_qty > 0:
+            avg_price_after = total_value / total_qty
+    
     # Create transaction
     transaction = PortfolioTransaction(
         stock_symbol=clean_symbol(data['stock_symbol']),
@@ -727,6 +1346,9 @@ def create_transaction():
         transaction_type=data['transaction_type'].upper(),
         quantity=float(data['quantity']),
         price=float(data['price']),
+        buy_step=buy_step,
+        sell_step=sell_step,
+        avg_price_after=avg_price_after,
         transaction_date=datetime.fromisoformat(data['transaction_date']),
         reason=data.get('reason'),
         notes=data.get('notes')
@@ -781,6 +1403,24 @@ def update_transaction(transaction_id):
     
     if 'transaction_type' in data:
         transaction.transaction_type = data['transaction_type'].upper()
+    
+    # Update buy/sell steps if provided
+    if 'buy_step' in data:
+        buy_step = data['buy_step']
+        if buy_step is not None:
+            buy_step = int(buy_step)
+            if buy_step < 1 or buy_step > 3:
+                return jsonify({'error': 'buy_step must be between 1 and 3'}), 400
+        transaction.buy_step = buy_step
+    
+    if 'sell_step' in data:
+        sell_step = data['sell_step']
+        if sell_step is not None:
+            sell_step = int(sell_step)
+            if sell_step < 1 or sell_step > 2:
+                return jsonify({'error': 'sell_step must be between 1 and 2'}), 400
+        transaction.sell_step = sell_step
+    
     transaction.transaction_date = datetime.fromisoformat(data['transaction_date']) if 'transaction_date' in data else transaction.transaction_date
     transaction.reason = data.get('reason', transaction.reason)
     transaction.notes = data.get('notes', transaction.notes)
@@ -901,11 +1541,11 @@ def get_portfolio_summary():
 @app.route('/api/portfolio/settings', methods=['GET'])
 @api_login_required
 def get_portfolio_settings():
-    """Get portfolio settings (total amount for % calculation)"""
+    """Get portfolio settings (projected portfolio amount for % calculation)"""
     settings = PortfolioSettings.query.first()
     if not settings:
         # Create default settings if none exist
-        settings = PortfolioSettings(total_amount=0.0)
+        settings = PortfolioSettings(projected_portfolio_amount=0.0)
         db.session.add(settings)
         db.session.commit()
     return jsonify(settings.to_dict())
@@ -914,7 +1554,7 @@ def get_portfolio_settings():
 @app.route('/api/portfolio/settings', methods=['PUT'])
 @api_login_required
 def update_portfolio_settings():
-    """Update portfolio settings (total amount and allocation thresholds)"""
+    """Update portfolio settings (projected portfolio amount and allocation thresholds)"""
     data = request.get_json()
     settings = PortfolioSettings.query.first()
     
@@ -923,8 +1563,23 @@ def update_portfolio_settings():
         db.session.add(settings)
     
     # Update all configurable fields
+    if 'projected_portfolio_amount' in data:
+        settings.projected_portfolio_amount = float(data['projected_portfolio_amount'])
+    # Support old field name for backward compatibility
     if 'total_amount' in data:
-        settings.total_amount = float(data['total_amount'])
+        settings.projected_portfolio_amount = float(data['total_amount'])
+    
+    if 'target_date' in data:
+        if data['target_date']:
+            # Parse date string to date object
+            from datetime import date
+            if isinstance(data['target_date'], str):
+                settings.target_date = date.fromisoformat(data['target_date'])
+            else:
+                settings.target_date = data['target_date']
+        else:
+            settings.target_date = None
+    
     if 'max_large_cap_pct' in data:
         settings.max_large_cap_pct = float(data['max_large_cap_pct'])
     if 'max_mid_cap_pct' in data:
@@ -933,19 +1588,47 @@ def update_portfolio_settings():
         settings.max_small_cap_pct = float(data['max_small_cap_pct'])
     if 'max_micro_cap_pct' in data:
         settings.max_micro_cap_pct = float(data['max_micro_cap_pct'])
-    if 'max_sector_pct' in data:
-        settings.max_sector_pct = float(data['max_sector_pct'])
     
-    settings.updated_at = datetime.utcnow()
+    # Stock count limits per market cap
+    if 'max_large_cap_stocks' in data:
+        settings.max_large_cap_stocks = int(data['max_large_cap_stocks'])
+    if 'max_mid_cap_stocks' in data:
+        settings.max_mid_cap_stocks = int(data['max_mid_cap_stocks'])
+    if 'max_small_cap_stocks' in data:
+        settings.max_small_cap_stocks = int(data['max_small_cap_stocks'])
+    if 'max_micro_cap_stocks' in data:
+        settings.max_micro_cap_stocks = int(data['max_micro_cap_stocks'])
+    
+    # Portfolio % limits per market cap
+    if 'max_large_cap_portfolio_pct' in data:
+        settings.max_large_cap_portfolio_pct = float(data['max_large_cap_portfolio_pct'])
+    if 'max_mid_cap_portfolio_pct' in data:
+        settings.max_mid_cap_portfolio_pct = float(data['max_mid_cap_portfolio_pct'])
+    if 'max_small_cap_portfolio_pct' in data:
+        settings.max_small_cap_portfolio_pct = float(data['max_small_cap_portfolio_pct'])
+    if 'max_micro_cap_portfolio_pct' in data:
+        settings.max_micro_cap_portfolio_pct = float(data['max_micro_cap_portfolio_pct'])
+    
+    # Overall limits
+    if 'max_stocks_per_sector' in data:
+        settings.max_stocks_per_sector = int(data['max_stocks_per_sector'])
+    if 'max_total_stocks' in data:
+        settings.max_total_stocks = int(data['max_total_stocks'])
+    
+    settings.updated_at = datetime.now(timezone.utc)
     
     db.session.commit()
     return jsonify(settings.to_dict())
 
 
-# Initialize database
-@app.before_request
-def create_tables():
+# Initialize database tables on startup
+with app.app_context():
     db.create_all()
+    # Create automatic backup on startup
+    try:
+        create_startup_backup()
+    except Exception as e:
+        print(f"[WARN] Could not create startup backup: {e}")
 
 
 # ============================================================================
@@ -1228,6 +1911,127 @@ def get_health_dashboard():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/health/financial-health', methods=['GET'])
+@api_login_required
+def get_financial_health():
+    """Get comprehensive financial health metrics (Phase 3)"""
+    try:
+        from utils import (
+            calculate_total_net_worth,
+            get_asset_allocation,
+            calculate_debt_to_income_ratio,
+            calculate_emergency_fund_months,
+            calculate_savings_rate
+        )
+        
+        # Gather all assets
+        all_assets = {
+            'stocks': PortfolioTransaction.query.all(),
+            'mutual_funds': MutualFundTransaction.query.all(),
+            'fixed_deposits': FixedDeposit.query.all(),
+            'epf': EPFAccount.query.all(),
+            'nps': NPSAccount.query.all(),
+            'savings': SavingsAccount.query.all(),
+            'lending': LendingRecord.query.filter_by(status='active').all(),
+            'other': OtherInvestment.query.all()
+        }
+        
+        # Get income/expense transactions
+        income_txns = IncomeTransaction.query.all()
+        expense_txns = ExpenseTransaction.query.all()
+        
+        # Get global settings
+        settings = GlobalSettings.query.first()
+        if not settings:
+            settings = GlobalSettings()
+        
+        # Calculate net worth
+        net_worth = calculate_total_net_worth(all_assets)
+        
+        # Calculate asset allocation
+        allocation = get_asset_allocation(all_assets)
+        
+        # Calculate savings rate
+        savings_rate_data = calculate_savings_rate(income_txns, expense_txns, period='monthly')
+        
+        # Calculate emergency fund months
+        savings_accounts = all_assets['savings']
+        total_cash = sum(acc.current_balance for acc in savings_accounts)
+        emergency_fund_months = calculate_emergency_fund_months(
+            total_cash, 
+            settings.monthly_expense_target if settings.monthly_expense_target > 0 else savings_rate_data['total_expense']
+        )
+        
+        # Calculate debt-to-income ratio (for now, we don't track liabilities, so it's 0)
+        # In future, can track credit card debt, loans, etc.
+        debt_to_income = 0  # Placeholder
+        
+        # Calculate overall financial health score (0-100)
+        # Based on multiple factors:
+        # 1. Emergency fund status (25 points)
+        emergency_fund_score = min((emergency_fund_months / settings.min_emergency_fund_months) * 25, 25) if settings.min_emergency_fund_months > 0 else 0
+        
+        # 2. Savings rate (25 points)
+        target_savings_rate = 30  # 30% is considered healthy
+        savings_rate_score = min((savings_rate_data['savings_rate'] / target_savings_rate) * 25, 25)
+        
+        # 3. Asset allocation balance (25 points)
+        # Check if equity/debt allocation is within targets
+        equity_target = settings.max_equity_allocation_pct
+        debt_target = settings.max_debt_allocation_pct
+        equity_diff = abs(allocation['equity'] - equity_target)
+        debt_diff = abs(allocation['debt'] - debt_target)
+        allocation_score = max(25 - (equity_diff + debt_diff) / 4, 0)
+        
+        # 4. Debt-to-income ratio (25 points)
+        # Lower is better, 0% gets full points, >50% gets 0 points
+        debt_score = max(25 - (debt_to_income / 2), 0)
+        
+        financial_health_score = int(emergency_fund_score + savings_rate_score + allocation_score + debt_score)
+        
+        return jsonify({
+            'financial_health_score': financial_health_score,
+            'net_worth': net_worth['total'],
+            'emergency_fund': {
+                'months_covered': emergency_fund_months,
+                'target_months': settings.min_emergency_fund_months,
+                'current_balance': round(total_cash, 2),
+                'status': 'excellent' if emergency_fund_months >= settings.min_emergency_fund_months else 'needs_attention'
+            },
+            'savings_rate': {
+                'current_rate': savings_rate_data['savings_rate'],
+                'monthly_income': savings_rate_data['total_income'],
+                'monthly_expense': savings_rate_data['total_expense'],
+                'monthly_savings': savings_rate_data['net_savings'],
+                'status': 'excellent' if savings_rate_data['savings_rate'] >= 30 else 'good' if savings_rate_data['savings_rate'] >= 20 else 'needs_improvement'
+            },
+            'debt_to_income': {
+                'ratio': debt_to_income,
+                'status': 'excellent' if debt_to_income < 20 else 'good' if debt_to_income < 35 else 'needs_attention'
+            },
+            'asset_allocation': {
+                'equity': allocation['equity'],
+                'debt': allocation['debt'],
+                'cash': allocation['cash'],
+                'alternative': allocation['alternative'],
+                'equity_target': equity_target,
+                'debt_target': debt_target
+            },
+            'score_breakdown': {
+                'emergency_fund_score': round(emergency_fund_score, 1),
+                'savings_rate_score': round(savings_rate_score, 1),
+                'allocation_score': round(allocation_score, 1),
+                'debt_score': round(debt_score, 1)
+            }
+        })
+    
+    except Exception as e:
+        print(f"ERROR in get_financial_health: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/recommendations/dashboard', methods=['GET'])
 @api_login_required
 def get_recommendations_dashboard():
@@ -1248,11 +2052,14 @@ def get_recommendations_dashboard():
         
         holdings_list = []
         total_invested = 0
+        total_current_value = 0
         
         for symbol, holding in holdings_dict.items():
             if holding['quantity'] > 0:
                 normalized_symbol = symbol.replace('.NS', '').replace('.BO', '').upper()
                 stock = stocks_map.get(normalized_symbol)
+                
+                current_value = (holding['quantity'] * stock.current_price) if (stock and stock.current_price) else 0
                 
                 holdings_list.append({
                     'symbol': symbol,
@@ -1261,17 +2068,27 @@ def get_recommendations_dashboard():
                     'market_cap': stock.market_cap if stock else None,
                     'invested_amount': holding['invested_amount'],
                     'quantity': holding['quantity'],
-                    'current_price': stock.current_price if stock else None
+                    'current_price': stock.current_price if stock else None,
+                    'current_value': current_value
                 })
                 
                 total_invested += holding['invested_amount']
+                total_current_value += current_value
         
-        # Get portfolio settings for thresholds
+        # Get portfolio settings for thresholds and total amount
         settings = PortfolioSettings.query.first()
+        
+        # Use settings.projected_portfolio_amount for percentage calculations (same as Holdings screen)
+        # This ensures % of Total matches between Holdings and Recommendations
+        total_target_amount = settings.projected_portfolio_amount if settings and settings.projected_portfolio_amount > 0 else total_current_value
+        
+        # Get parent sector mappings
+        parent_mappings_list = ParentSectorMapping.query.all()
+        parent_sector_mappings = {m.sector_name: m.parent_sector for m in parent_mappings_list}
         
         # Get rebalancing suggestions
         from utils import get_rebalancing_suggestions
-        rebalancing = get_rebalancing_suggestions(holdings_list, stocks, total_invested, settings)
+        rebalancing = get_rebalancing_suggestions(holdings_list, stocks, total_target_amount, settings, parent_sector_mappings)
         
         # Get alert zone action items (moved from analytics)
         holding_symbols_normalized = set(normalize_symbol(s) for s in holdings_dict.keys())
@@ -1406,8 +2223,15 @@ def export_stocks_csv():
     try:
         stocks = Stock.query.all()
         
+        # Return empty list if no stocks, not 404
         if not stocks:
-            return jsonify({'error': 'No stocks to export'}), 404
+            # Create empty CSV with headers
+            df = pd.DataFrame(columns=['id', 'symbol', 'name', 'sector', 'market_cap', 'status'])
+            filename = f'stocks_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+            filepath = os.path.join('exports', filename)
+            os.makedirs('exports', exist_ok=True)
+            df.to_csv(filepath, index=False)
+            return send_file(filepath, as_attachment=True, download_name=filename, mimetype='text/csv')
         
         # Convert to list of dicts
         data = [stock.to_dict() for stock in stocks]
@@ -1501,8 +2325,15 @@ def export_transactions_csv():
     try:
         transactions = PortfolioTransaction.query.all()
         
+        # Return empty CSV if no transactions, not 404
         if not transactions:
-            return jsonify({'error': 'No transactions to export'}), 404
+            # Create empty CSV with headers
+            df = pd.DataFrame(columns=['id', 'symbol', 'transaction_type', 'quantity', 'price', 'transaction_date'])
+            filename = f'transactions_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
+            filepath = os.path.join('exports', filename)
+            os.makedirs('exports', exist_ok=True)
+            df.to_csv(filepath, index=False)
+            return send_file(filepath, as_attachment=True, download_name=filename, mimetype='text/csv')
         
         # Convert to list of dicts
         data = [txn.to_dict() for txn in transactions]
@@ -1585,10 +2416,14 @@ def import_transactions_csv():
 def backup_database():
     """Download database backup"""
     try:
-        db_path = 'investment_manager.db'
+        # Database is in instance/ folder
+        db_path = os.path.join('instance', 'investment_manager.db')
         
         if not os.path.exists(db_path):
-            return jsonify({'error': 'Database file not found'}), 404
+            # Try without instance folder (for tests or different setup)
+            db_path = 'investment_manager.db'
+            if not os.path.exists(db_path):
+                return jsonify({'error': 'Database file not found'}), 404
         
         # Create backups directory
         os.makedirs('backups', exist_ok=True)
@@ -1639,6 +2474,1854 @@ def restore_database():
         })
     
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# Personal Finance API Routes - Multi-Asset Tracking
+# ============================================================================
+
+# Mutual Funds Routes
+@app.route('/api/mutual-funds/schemes', methods=['GET'])
+@api_login_required
+def get_mutual_fund_schemes():
+    """Get all tracked mutual fund schemes"""
+    try:
+        schemes = MutualFund.query.all()
+        return jsonify([scheme.to_dict() for scheme in schemes])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/mutual-funds/schemes', methods=['POST'])
+@api_login_required
+def add_mutual_fund_scheme():
+    """Add new mutual fund scheme to track"""
+    try:
+        data = request.json
+        
+        # Map frontend field names to backend field names
+        # Use 'name' from frontend, fallback to 'scheme_name'
+        scheme_name = data.get('name') if 'name' in data else data.get('scheme_name')
+        if scheme_name == '':
+            scheme_name = None
+        
+        scheme_code = data.get('scheme_code')
+        if scheme_code == '':
+            scheme_code = None
+            
+        fund_house = data.get('amc') if 'amc' in data else data.get('fund_house')
+        if fund_house == '':
+            fund_house = None
+        
+        # Handle numeric fields - convert empty strings to None
+        current_nav = data.get('nav') if 'nav' in data else data.get('current_nav')
+        if current_nav == '' or current_nav is None:
+            current_nav = None
+        else:
+            current_nav = float(current_nav)
+        
+        expense_ratio = data.get('expense_ratio')
+        if expense_ratio == '' or expense_ratio is None:
+            expense_ratio = None
+        else:
+            expense_ratio = float(expense_ratio)
+        
+        # Auto-fetch NAV by scheme name if NAV is missing
+        if scheme_name and not current_nav:
+            try:
+                nav_data = fetch_mf_nav_by_name(scheme_name)
+                if nav_data:
+                    if not current_nav and nav_data.get('nav'):
+                        current_nav = float(nav_data['nav'])
+                    print(f"[OK] Auto-fetched NAV for {scheme_name}: Rs.{current_nav}")
+            except Exception as e:
+                print(f"[WARN] Could not auto-fetch NAV: {str(e)}")
+        
+        if not data or not scheme_name:
+            return jsonify({'error': 'Scheme name is required'}), 400
+        
+        # Check if scheme already exists by name
+        existing = MutualFund.query.filter_by(scheme_name=scheme_name).first()
+        if existing:
+            return jsonify({'error': 'Scheme with this name already exists'}), 400
+        
+        scheme = MutualFund(
+            scheme_code=scheme_code,
+            scheme_name=scheme_name,
+            fund_house=fund_house,
+            category=data.get('category') if data.get('category') else None,
+            sub_category=data.get('sub_category') if data.get('sub_category') else None,
+            current_nav=current_nav,
+            expense_ratio=expense_ratio,
+            notes=data.get('notes')
+        )
+        
+        db.session.add(scheme)
+        db.session.commit()
+        
+        return jsonify(scheme.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/mutual-funds/schemes/<int:scheme_id>', methods=['PUT'])
+@api_login_required
+def update_mutual_fund_scheme(scheme_id):
+    """Update mutual fund scheme details"""
+    try:
+        scheme = MutualFund.query.get_or_404(scheme_id)
+        data = request.json
+        
+        # Map frontend field names to backend field names
+        scheme_name = data.get('name') if 'name' in data else data.get('scheme_name')
+        if scheme_name == '':
+            scheme_name = None
+            
+        fund_house = data.get('amc') if 'amc' in data else data.get('fund_house')
+        if fund_house == '':
+            fund_house = None
+        
+        if scheme_name:
+            scheme.scheme_name = scheme_name
+        if fund_house:
+            scheme.fund_house = fund_house
+        if 'category' in data:
+            scheme.category = data['category']
+        if 'sub_category' in data:
+            scheme.sub_category = data['sub_category']
+        
+        # Handle numeric fields - convert empty strings to None
+        if 'nav' in data or 'current_nav' in data:
+            current_nav = data.get('nav') if 'nav' in data else data.get('current_nav')
+            if current_nav == '' or current_nav is None:
+                scheme.current_nav = None
+            else:
+                scheme.current_nav = float(current_nav)
+        
+        if 'day_change_pct' in data:
+            day_change_pct = data.get('day_change_pct')
+            if day_change_pct == '' or day_change_pct is None:
+                scheme.day_change_pct = None
+            else:
+                scheme.day_change_pct = float(day_change_pct)
+        
+        if 'expense_ratio' in data:
+            expense_ratio = data.get('expense_ratio')
+            if expense_ratio == '' or expense_ratio is None:
+                scheme.expense_ratio = None
+            else:
+                scheme.expense_ratio = float(expense_ratio)
+        
+        if 'notes' in data:
+            scheme.notes = data['notes']
+        
+        scheme.last_updated = datetime.now(timezone.utc)
+        db.session.commit()
+        
+        return jsonify(scheme.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/mutual-funds/schemes/<int:scheme_id>', methods=['DELETE'])
+@api_login_required
+def delete_mutual_fund_scheme(scheme_id):
+    """Delete mutual fund scheme"""
+    try:
+        scheme = MutualFund.query.get_or_404(scheme_id)
+        db.session.delete(scheme)
+        db.session.commit()
+        return jsonify({'message': 'Scheme deleted successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/mutual-funds/fetch-nav/<scheme_name>', methods=['GET'])
+@api_login_required
+def fetch_mutual_fund_nav_by_name(scheme_name):
+    """
+    Fetch current NAV by scheme name using web search
+    """
+    try:
+        # Fetch NAV data by searching scheme name
+        nav_data = fetch_mf_nav_by_name(scheme_name)
+        
+        if not nav_data or not nav_data.get('nav'):
+            return jsonify({
+                'error': 'Could not fetch NAV. Please enter manually.',
+                'scheme_name': scheme_name
+            }), 404
+        
+        return jsonify({
+            'scheme_name': nav_data.get('scheme_name'),
+            'nav': nav_data.get('nav'),
+            'current_nav': nav_data.get('nav'),  # For frontend compatibility
+            'date': nav_data.get('date'),
+            'last_updated': nav_data.get('date'),
+            'source': nav_data.get('source', 'Web Search')
+        })
+    
+    except Exception as e:
+        print(f"[ERROR] fetch_mutual_fund_nav_by_name failed: {str(e)}")
+        return jsonify({
+            'error': 'Failed to fetch NAV',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/mutual-funds/refresh-navs', methods=['POST'])
+@api_login_required
+def refresh_mutual_fund_navs():
+    """
+    Refresh NAVs for all tracked mutual fund schemes using scheme names
+    """
+    try:
+        schemes = MutualFund.query.all()
+        updated_count = 0
+        failed_count = 0
+        
+        print(f"\n[REFRESH] Starting NAV refresh for {len(schemes)} schemes...")
+        
+        for scheme in schemes:
+            try:
+                old_nav = scheme.current_nav
+                print(f"[REFRESH] Fetching NAV for: {scheme.scheme_name} (current: {old_nav})")
+                
+                # Fetch NAV by scheme name (not code)
+                nav_data = fetch_mf_nav_by_name(scheme.scheme_name)
+                if nav_data and nav_data.get('nav'):
+                    new_nav = float(nav_data['nav'])
+                    scheme.current_nav = new_nav
+                    scheme.last_updated = datetime.now(timezone.utc)
+                    
+                    updated_count += 1
+                    print(f"[REFRESH] ✓ Updated {scheme.scheme_name}: {old_nav} → {new_nav}")
+                else:
+                    failed_count += 1
+                    print(f"[REFRESH] ✗ Could not fetch NAV for {scheme.scheme_name}")
+            except Exception as e:
+                failed_count += 1
+                print(f"[REFRESH] ✗ Error for {scheme.scheme_name}: {str(e)}")
+        
+        db.session.commit()
+        print(f"[REFRESH] Committed changes to database")
+        
+        return jsonify({
+            'message': f'Updated {updated_count} of {len(schemes)} schemes',
+            'updated_count': updated_count,
+            'failed_count': failed_count,
+            'total_count': len(schemes)
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        print(f"[REFRESH] ✗ Error during refresh: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/mutual-funds/transactions', methods=['GET'])
+@api_login_required
+def get_mutual_fund_transactions():
+    """Get all mutual fund transactions"""
+    try:
+        transactions = MutualFundTransaction.query.order_by(MutualFundTransaction.transaction_date.desc()).all()
+        return jsonify([txn.to_dict() for txn in transactions])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/mutual-funds/transactions', methods=['POST'])
+@api_login_required
+def add_mutual_fund_transaction():
+    """Add mutual fund transaction"""
+    try:
+        data = request.json
+        
+        # Accept either scheme_id or scheme_code/scheme_name
+        scheme_id = data.get('scheme_id')
+        transaction_date = data.get('date') or data.get('transaction_date')
+        
+        # Required fields check
+        if not data or not data.get('transaction_type') or not data.get('units') or not data.get('nav') or not data.get('amount') or not transaction_date:
+            return jsonify({'error': 'transaction_type, units, nav, amount, and date are required'}), 400
+        
+        # If scheme_id is provided, look up the scheme
+        if scheme_id:
+            scheme = MutualFund.query.get(scheme_id)
+            if not scheme:
+                return jsonify({'error': 'Scheme not found'}), 404
+            scheme_code = scheme.scheme_code or ''
+            scheme_name = scheme.scheme_name
+        else:
+            # Fallback to old method (scheme_code and scheme_name directly)
+            scheme_code = data.get('scheme_code', '')
+            scheme_name = data.get('scheme_name')
+            if not scheme_name:
+                return jsonify({'error': 'scheme_id or scheme_name is required'}), 400
+        
+        # Parse transaction date
+        try:
+            if 'T' in transaction_date:
+                txn_date = datetime.fromisoformat(transaction_date.replace('Z', '+00:00'))
+            else:
+                txn_date = datetime.strptime(transaction_date, '%Y-%m-%d')
+        except ValueError:
+            return jsonify({'error': 'Invalid date format'}), 400
+        
+        transaction = MutualFundTransaction(
+            scheme_id=scheme_id if scheme_id else None,
+            scheme_code=scheme_code,
+            scheme_name=scheme_name,
+            transaction_type=data['transaction_type'].upper(),
+            units=float(data['units']),
+            nav=float(data['nav']),
+            amount=float(data['amount']),
+            transaction_date=txn_date,
+            is_sip=data.get('is_sip', False),
+            sip_id=data.get('sip_id'),
+            reason=data.get('reason'),
+            notes=data.get('notes')
+        )
+        
+        db.session.add(transaction)
+        db.session.commit()
+        
+        return jsonify(transaction.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/mutual-funds/transactions/<int:txn_id>', methods=['PUT'])
+@api_login_required
+def update_mutual_fund_transaction(txn_id):
+    """Update mutual fund transaction"""
+    try:
+        transaction = MutualFundTransaction.query.get_or_404(txn_id)
+        data = request.json
+        
+        # Handle scheme_id - lookup scheme if provided
+        if data.get('scheme_id'):
+            scheme = MutualFund.query.get(data['scheme_id'])
+            if scheme:
+                transaction.scheme_id = data['scheme_id']
+                transaction.scheme_code = scheme.scheme_code or ''
+                transaction.scheme_name = scheme.scheme_name
+        
+        # Fallback to direct scheme_code/scheme_name
+        if data.get('scheme_code'):
+            transaction.scheme_code = data['scheme_code']
+        if data.get('scheme_name'):
+            transaction.scheme_name = data['scheme_name']
+            
+        if data.get('transaction_type'):
+            transaction.transaction_type = data['transaction_type'].upper()
+        if data.get('units') is not None:
+            transaction.units = float(data['units'])
+        if data.get('nav') is not None:
+            transaction.nav = float(data['nav'])
+        if data.get('amount') is not None:
+            transaction.amount = float(data['amount'])
+            
+        # Handle date field (frontend sends 'date', backend stores 'transaction_date')
+        date_value = data.get('date') or data.get('transaction_date')
+        if date_value:
+            if 'T' in date_value:
+                transaction.transaction_date = datetime.fromisoformat(date_value.replace('Z', '+00:00'))
+            else:
+                transaction.transaction_date = datetime.strptime(date_value, '%Y-%m-%d')
+                
+        if 'is_sip' in data:
+            transaction.is_sip = data['is_sip']
+        if 'sip_id' in data:
+            transaction.sip_id = data['sip_id']
+        if 'reason' in data:
+            transaction.reason = data['reason']
+        if 'notes' in data:
+            transaction.notes = data['notes']
+        
+        db.session.commit()
+        return jsonify(transaction.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/mutual-funds/transactions/<int:txn_id>', methods=['DELETE'])
+@api_login_required
+def delete_mutual_fund_transaction(txn_id):
+    """Delete mutual fund transaction"""
+    try:
+        transaction = MutualFundTransaction.query.get_or_404(txn_id)
+        db.session.delete(transaction)
+        db.session.commit()
+        return jsonify({'message': 'Transaction deleted successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/mutual-funds/holdings', methods=['GET'])
+@api_login_required
+def get_mutual_fund_holdings():
+    """Calculate and return mutual fund holdings using FIFO"""
+    try:
+        transactions = MutualFundTransaction.query.order_by(MutualFundTransaction.transaction_date).all()
+        
+        from utils.mutual_funds import calculate_mf_holdings, calculate_mf_xirr
+        holdings_dict = calculate_mf_holdings(transactions)
+        
+        # Get scheme details - create maps by both ID and code
+        schemes = MutualFund.query.all()
+        schemes_by_id = {scheme.id: scheme for scheme in schemes}
+        schemes_by_code = {scheme.scheme_code: scheme for scheme in schemes if scheme.scheme_code}
+        
+        holdings_list = []
+        total_invested = 0
+        total_current_value = 0
+        total_unrealized_pl = 0
+        
+        for key, holding in holdings_dict.items():
+            if holding['units'] > 0:
+                # Try to find scheme by ID first, then by code
+                scheme = None
+                scheme_id = holding.get('scheme_id')
+                
+                if scheme_id:
+                    scheme = schemes_by_id.get(scheme_id)
+                
+                if not scheme and holding.get('scheme_code'):
+                    scheme = schemes_by_code.get(holding['scheme_code'])
+                
+                # Calculate current value first
+                current_value = (scheme.current_nav * holding['units']) if scheme and scheme.current_nav else 0
+                invested_amount = holding['invested_amount']
+                
+                # Calculate XIRR for this holding
+                scheme_transactions = [t for t in transactions if (t.scheme_id == scheme_id or t.scheme_name == holding['scheme_name'])]
+                
+                # Calculate XIRR with current value
+                if scheme_transactions and current_value > 0:
+                    from utils.xirr import xirr
+                    from datetime import date
+                    cash_flows = []
+                    for txn in scheme_transactions:
+                        txn_date = txn.transaction_date
+                        if isinstance(txn_date, datetime):
+                            txn_date = txn_date.date()
+                        if txn.transaction_type == 'BUY':
+                            cash_flows.append((txn_date, -txn.amount))
+                        elif txn.transaction_type == 'SELL':
+                            cash_flows.append((txn_date, txn.amount))
+                    # Add current value as final inflow
+                    cash_flows.append((date.today(), current_value))
+                    try:
+                        xirr_value = xirr(cash_flows)
+                        if xirr_value is not None:
+                            xirr_value = round(xirr_value * 100, 2)  # Convert to percentage and round to 2 decimals
+                    except:
+                        xirr_value = None
+                else:
+                    xirr_value = None
+                unrealized_pl = current_value - invested_amount if current_value else 0
+                return_percent = (unrealized_pl / invested_amount * 100) if invested_amount > 0 else 0
+                
+                total_invested += invested_amount
+                total_current_value += current_value
+                total_unrealized_pl += unrealized_pl
+                
+                holdings_list.append({
+                    'id': len(holdings_list) + 1,  # Temporary ID for frontend
+                    'scheme_id': scheme_id,
+                    'scheme_code': holding.get('scheme_code', ''),
+                    'scheme_name': holding['scheme_name'],
+                    'category': scheme.category if scheme else None,
+                    'units': holding['units'],
+                    'avg_nav': invested_amount / holding['units'] if holding['units'] > 0 else 0,
+                    'invested': invested_amount,
+                    'invested_amount': invested_amount,
+                    'current_nav': scheme.current_nav if scheme else None,
+                    'current_value': current_value,
+                    'realized_pnl': holding['realized_pnl'],
+                    'unrealized_pl': unrealized_pl,
+                    'return_percent': return_percent,
+                    'xirr': xirr_value
+                })
+        
+        # Calculate overall portfolio XIRR
+        if transactions and total_current_value > 0:
+            from utils.xirr import xirr
+            from datetime import date
+            cash_flows = []
+            for txn in transactions:
+                txn_date = txn.transaction_date
+                if isinstance(txn_date, datetime):
+                    txn_date = txn_date.date()
+                if txn.transaction_type == 'BUY':
+                    cash_flows.append((txn_date, -txn.amount))
+                elif txn.transaction_type == 'SELL':
+                    cash_flows.append((txn_date, txn.amount))
+            # Add current portfolio value as final inflow
+            cash_flows.append((date.today(), total_current_value))
+            try:
+                overall_xirr = xirr(cash_flows)
+                if overall_xirr is not None:
+                    overall_xirr = round(overall_xirr * 100, 2)  # Convert to percentage and round to 2 decimals
+            except:
+                overall_xirr = None
+        else:
+            overall_xirr = None
+        
+        return jsonify({
+            'holdings': holdings_list,
+            'summary': {
+                'total_invested': round(total_invested, 2),
+                'current_value': round(total_current_value, 2),
+                'unrealized_pl': round(total_unrealized_pl, 2),
+                'return_percent': round((total_unrealized_pl / total_invested * 100) if total_invested > 0 else 0, 2),
+                'xirr': overall_xirr
+            }
+        })
+    except Exception as e:
+        print(f"ERROR in get_mutual_fund_holdings: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+# Fixed Deposits Routes
+@app.route('/api/fixed-deposits', methods=['GET'])
+@api_login_required
+def get_fixed_deposits():
+    """Get all fixed deposits"""
+    try:
+        fds = FixedDeposit.query.all()
+        return jsonify([fd.to_dict() for fd in fds])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/fixed-deposits', methods=['POST'])
+@api_login_required
+def add_fixed_deposit():
+    """Add new fixed deposit"""
+    try:
+        data = request.json
+        
+        required_fields = ['bank_name', 'principal_amount', 'interest_rate', 'start_date', 'maturity_date']
+        for field in required_fields:
+            if not data or field not in data:
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        # Parse dates
+        start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+        maturity_date = datetime.strptime(data['maturity_date'], '%Y-%m-%d').date()
+        
+        fd = FixedDeposit(
+            bank_name=data['bank_name'],
+            account_number=data.get('account_number'),
+            principal_amount=float(data['principal_amount']),
+            interest_rate=float(data['interest_rate']),
+            start_date=start_date,
+            maturity_date=maturity_date,
+            interest_frequency=data.get('interest_frequency', 'at_maturity'),
+            maturity_amount=data.get('maturity_amount'),
+            status=data.get('status', 'active'),
+            notes=data.get('notes')
+        )
+        
+        db.session.add(fd)
+        db.session.commit()
+        
+        return jsonify(fd.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/fixed-deposits/<int:fd_id>', methods=['PUT'])
+@api_login_required
+def update_fixed_deposit(fd_id):
+    """Update fixed deposit"""
+    try:
+        fd = FixedDeposit.query.get_or_404(fd_id)
+        data = request.json
+        
+        if data.get('bank_name'):
+            fd.bank_name = data['bank_name']
+        if 'account_number' in data:
+            fd.account_number = data['account_number']
+        if data.get('principal_amount') is not None:
+            fd.principal_amount = float(data['principal_amount'])
+        if data.get('interest_rate') is not None:
+            fd.interest_rate = float(data['interest_rate'])
+        if data.get('start_date'):
+            fd.start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+        if data.get('maturity_date'):
+            fd.maturity_date = datetime.strptime(data['maturity_date'], '%Y-%m-%d').date()
+        if data.get('interest_frequency'):
+            fd.interest_frequency = data['interest_frequency']
+        if data.get('maturity_amount') is not None:
+            fd.maturity_amount = float(data['maturity_amount'])
+        if data.get('status'):
+            fd.status = data['status']
+        if 'notes' in data:
+            fd.notes = data['notes']
+        
+        db.session.commit()
+        return jsonify(fd.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/fixed-deposits/<int:fd_id>', methods=['DELETE'])
+@api_login_required
+def delete_fixed_deposit(fd_id):
+    """Delete fixed deposit"""
+    try:
+        fd = FixedDeposit.query.get_or_404(fd_id)
+        db.session.delete(fd)
+        db.session.commit()
+        return jsonify({'message': 'Fixed deposit deleted successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/fixed-deposits/matured', methods=['GET'])
+@api_login_required
+def get_matured_fixed_deposits():
+    """Get matured fixed deposits"""
+    try:
+        today = datetime.now().date()
+        matured_fds = FixedDeposit.query.filter(FixedDeposit.maturity_date <= today).all()
+        return jsonify([fd.to_dict() for fd in matured_fds])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/fixed-deposits/upcoming-maturity', methods=['GET'])
+@api_login_required
+def get_upcoming_maturity_fds():
+    """Get FDs maturing in next 90 days"""
+    try:
+        today = datetime.now().date()
+        ninety_days_later = today + pd.Timedelta(days=90)
+        
+        upcoming_fds = FixedDeposit.query.filter(
+            FixedDeposit.maturity_date > today,
+            FixedDeposit.maturity_date <= ninety_days_later,
+            FixedDeposit.status == 'active'
+        ).all()
+        
+        return jsonify([fd.to_dict() for fd in upcoming_fds])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# EPF Routes
+@app.route('/api/epf/accounts', methods=['GET'])
+@api_login_required
+def get_epf_accounts():
+    """Get all EPF accounts"""
+    try:
+        accounts = EPFAccount.query.all()
+        return jsonify([acc.to_dict() for acc in accounts])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/epf/accounts', methods=['POST'])
+@api_login_required
+def add_epf_account():
+    """Add new EPF account"""
+    try:
+        data = request.json
+        
+        if not data or not data.get('employer_name'):
+            return jsonify({'error': 'Employer name is required'}), 400
+        
+        opening_date = None
+        if data.get('opening_date'):
+            opening_date = datetime.strptime(data['opening_date'], '%Y-%m-%d').date()
+        
+        account = EPFAccount(
+            employer_name=data['employer_name'],
+            uan_number=data.get('uan_number'),
+            opening_balance=data.get('opening_balance', 0.0),
+            opening_date=opening_date,
+            current_balance=data.get('current_balance', 0.0),
+            interest_rate=data.get('interest_rate'),
+            notes=data.get('notes')
+        )
+        
+        db.session.add(account)
+        db.session.commit()
+        
+        return jsonify(account.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/epf/accounts/<int:account_id>', methods=['PUT'])
+@api_login_required
+def update_epf_account(account_id):
+    """Update EPF account"""
+    try:
+        account = EPFAccount.query.get_or_404(account_id)
+        data = request.json
+        
+        if data.get('employer_name'):
+            account.employer_name = data['employer_name']
+        if 'uan_number' in data:
+            account.uan_number = data['uan_number']
+        if data.get('opening_balance') is not None:
+            account.opening_balance = float(data['opening_balance'])
+        if data.get('opening_date'):
+            account.opening_date = datetime.strptime(data['opening_date'], '%Y-%m-%d').date()
+        if data.get('current_balance') is not None:
+            account.current_balance = float(data['current_balance'])
+        if data.get('interest_rate') is not None:
+            account.interest_rate = float(data['interest_rate'])
+        if 'notes' in data:
+            account.notes = data['notes']
+        
+        account.last_updated = datetime.now(timezone.utc)
+        db.session.commit()
+        
+        return jsonify(account.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/epf/contributions', methods=['GET'])
+@api_login_required
+def get_epf_contributions():
+    """Get all EPF contributions"""
+    try:
+        contributions = EPFContribution.query.order_by(EPFContribution.transaction_date.desc()).all()
+        return jsonify([cont.to_dict() for cont in contributions])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/epf/contributions', methods=['POST'])
+@api_login_required
+def add_epf_contribution():
+    """Add EPF contribution"""
+    try:
+        data = request.json
+        
+        required_fields = ['epf_account_id', 'month_year', 'transaction_date']
+        for field in required_fields:
+            if not data or field not in data:
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        txn_date = datetime.strptime(data['transaction_date'], '%Y-%m-%d').date()
+        
+        contribution = EPFContribution(
+            epf_account_id=data['epf_account_id'],
+            month_year=data['month_year'],
+            employee_contribution=data.get('employee_contribution', 0.0),
+            employer_contribution=data.get('employer_contribution', 0.0),
+            interest_earned=data.get('interest_earned', 0.0),
+            transaction_date=txn_date,
+            notes=data.get('notes')
+        )
+        
+        db.session.add(contribution)
+        
+        # Update account current balance
+        account = EPFAccount.query.get(data['epf_account_id'])
+        if account:
+            account.current_balance += (
+                data.get('employee_contribution', 0.0) + 
+                data.get('employer_contribution', 0.0) + 
+                data.get('interest_earned', 0.0)
+            )
+            account.last_updated = datetime.now(timezone.utc)
+        
+        db.session.commit()
+        
+        return jsonify(contribution.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/epf/summary', methods=['GET'])
+@api_login_required
+def get_epf_summary():
+    """Get EPF summary"""
+    try:
+        accounts = EPFAccount.query.all()
+        total_balance = sum(acc.current_balance for acc in accounts)
+        
+        return jsonify({
+            'total_accounts': len(accounts),
+            'total_balance': total_balance,
+            'accounts': [acc.to_dict() for acc in accounts]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# NPS Routes - Similar structure to EPF
+@app.route('/api/nps/accounts', methods=['GET'])
+@api_login_required
+def get_nps_accounts():
+    """Get all NPS accounts"""
+    try:
+        accounts = NPSAccount.query.all()
+        return jsonify([acc.to_dict() for acc in accounts])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/nps/accounts', methods=['POST'])
+@api_login_required
+def add_nps_account():
+    """Add new NPS account"""
+    try:
+        data = request.json
+        
+        if not data or not data.get('pran_number'):
+            return jsonify({'error': 'PRAN number is required'}), 400
+        
+        # Check if PRAN already exists
+        existing = NPSAccount.query.filter_by(pran_number=data['pran_number']).first()
+        if existing:
+            return jsonify({'error': 'PRAN already exists'}), 400
+        
+        account = NPSAccount(
+            pran_number=data['pran_number'],
+            scheme_type=data.get('scheme_type', 'tier1'),
+            current_value=data.get('current_value', 0.0),
+            units=data.get('units', 0.0),
+            nav=data.get('nav'),
+            notes=data.get('notes')
+        )
+        
+        db.session.add(account)
+        db.session.commit()
+        
+        return jsonify(account.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/nps/contributions', methods=['GET'])
+@api_login_required
+def get_nps_contributions():
+    """Get all NPS contributions"""
+    try:
+        contributions = NPSContribution.query.order_by(NPSContribution.transaction_date.desc()).all()
+        return jsonify([cont.to_dict() for cont in contributions])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/nps/contributions', methods=['POST'])
+@api_login_required
+def add_nps_contribution():
+    """Add NPS contribution"""
+    try:
+        data = request.json
+        
+        required_fields = ['nps_account_id', 'amount', 'transaction_date']
+        for field in required_fields:
+            if not data or field not in data:
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        txn_date = datetime.strptime(data['transaction_date'], '%Y-%m-%d').date()
+        
+        contribution = NPSContribution(
+            nps_account_id=data['nps_account_id'],
+            amount=float(data['amount']),
+            nav=data.get('nav'),
+            units=data.get('units'),
+            transaction_date=txn_date,
+            contribution_type=data.get('contribution_type', 'self'),
+            notes=data.get('notes')
+        )
+        
+        db.session.add(contribution)
+        
+        # Update account
+        account = NPSAccount.query.get(data['nps_account_id'])
+        if account:
+            account.current_value += float(data['amount'])
+            if data.get('units'):
+                account.units += float(data['units'])
+            if data.get('nav'):
+                account.nav = float(data['nav'])
+            account.last_updated = datetime.now(timezone.utc)
+        
+        db.session.commit()
+        
+        return jsonify(contribution.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/nps/summary', methods=['GET'])
+@api_login_required
+def get_nps_summary():
+    """Get NPS summary"""
+    try:
+        accounts = NPSAccount.query.all()
+        total_value = sum(acc.current_value for acc in accounts)
+        
+        return jsonify({
+            'total_accounts': len(accounts),
+            'total_value': total_value,
+            'accounts': [acc.to_dict() for acc in accounts]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Savings Account Routes
+@app.route('/api/savings/accounts', methods=['GET'])
+@api_login_required
+def get_savings_accounts():
+    """Get all savings accounts"""
+    try:
+        accounts = SavingsAccount.query.all()
+        return jsonify([acc.to_dict() for acc in accounts])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/savings/accounts', methods=['POST'])
+@api_login_required
+def add_savings_account():
+    """Add new savings account"""
+    try:
+        data = request.json
+        
+        required_fields = ['bank_name', 'account_number']
+        for field in required_fields:
+            if not data or field not in data:
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        account = SavingsAccount(
+            bank_name=data['bank_name'],
+            account_number=data['account_number'],
+            account_type=data.get('account_type', 'savings'),
+            current_balance=data.get('current_balance', 0.0),
+            interest_rate=data.get('interest_rate'),
+            notes=data.get('notes')
+        )
+        
+        db.session.add(account)
+        db.session.commit()
+        
+        return jsonify(account.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/savings/accounts/<int:account_id>', methods=['PUT'])
+@api_login_required
+def update_savings_account(account_id):
+    """Update savings account"""
+    try:
+        account = SavingsAccount.query.get_or_404(account_id)
+        data = request.json
+        
+        if data.get('bank_name'):
+            account.bank_name = data['bank_name']
+        if data.get('account_number'):
+            account.account_number = data['account_number']
+        if data.get('account_type'):
+            account.account_type = data['account_type']
+        if data.get('current_balance') is not None:
+            account.current_balance = float(data['current_balance'])
+        if data.get('interest_rate') is not None:
+            account.interest_rate = float(data['interest_rate'])
+        if 'notes' in data:
+            account.notes = data['notes']
+        
+        account.last_updated = datetime.now(timezone.utc)
+        db.session.commit()
+        
+        return jsonify(account.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/savings/transactions', methods=['GET'])
+@api_login_required
+def get_savings_transactions():
+    """Get all savings transactions"""
+    try:
+        transactions = SavingsTransaction.query.order_by(SavingsTransaction.transaction_date.desc()).all()
+        return jsonify([txn.to_dict() for txn in transactions])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/savings/transactions', methods=['POST'])
+@api_login_required
+def add_savings_transaction():
+    """Add savings transaction"""
+    try:
+        data = request.json
+        
+        required_fields = ['account_id', 'transaction_type', 'amount', 'transaction_date']
+        for field in required_fields:
+            if not data or field not in data:
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        txn_date = datetime.strptime(data['transaction_date'], '%Y-%m-%d').date()
+        
+        transaction = SavingsTransaction(
+            account_id=data['account_id'],
+            transaction_type=data['transaction_type'],
+            amount=float(data['amount']),
+            balance_after=data.get('balance_after'),
+            transaction_date=txn_date,
+            description=data.get('description'),
+            notes=data.get('notes')
+        )
+        
+        db.session.add(transaction)
+        
+        # Update account balance
+        account = SavingsAccount.query.get(data['account_id'])
+        if account:
+            if data['transaction_type'] == 'deposit':
+                account.current_balance += float(data['amount'])
+            elif data['transaction_type'] == 'withdrawal':
+                account.current_balance -= float(data['amount'])
+            account.last_updated = datetime.now(timezone.utc)
+        
+        db.session.commit()
+        
+        return jsonify(transaction.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/savings/summary', methods=['GET'])
+@api_login_required
+def get_savings_summary():
+    """Get savings summary"""
+    try:
+        accounts = SavingsAccount.query.all()
+        total_balance = sum(acc.current_balance for acc in accounts)
+        
+        return jsonify({
+            'total_accounts': len(accounts),
+            'total_balance': total_balance,
+            'accounts': [acc.to_dict() for acc in accounts]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Lending Routes
+@app.route('/api/lending', methods=['GET'])
+@api_login_required
+def get_lending_records():
+    """Get all lending records"""
+    try:
+        records = LendingRecord.query.all()
+        return jsonify([rec.to_dict() for rec in records])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/lending', methods=['POST'])
+@api_login_required
+def add_lending_record():
+    """Add new lending record"""
+    try:
+        data = request.json
+        
+        required_fields = ['borrower_name', 'principal_amount', 'start_date']
+        for field in required_fields:
+            if not data or field not in data:
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+        
+        record = LendingRecord(
+            borrower_name=data['borrower_name'],
+            principal_amount=float(data['principal_amount']),
+            interest_rate=data.get('interest_rate', 0.0),
+            start_date=start_date,
+            tenure_months=data.get('tenure_months'),
+            monthly_emi=data.get('monthly_emi'),
+            total_repaid=data.get('total_repaid', 0.0),
+            outstanding_amount=data.get('outstanding_amount', data['principal_amount']),
+            status=data.get('status', 'active'),
+            notes=data.get('notes')
+        )
+        
+        db.session.add(record)
+        db.session.commit()
+        
+        return jsonify(record.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/lending/<int:record_id>', methods=['PUT'])
+@api_login_required
+def update_lending_record(record_id):
+    """Update lending record"""
+    try:
+        record = LendingRecord.query.get_or_404(record_id)
+        data = request.json
+        
+        if data.get('borrower_name'):
+            record.borrower_name = data['borrower_name']
+        if data.get('total_repaid') is not None:
+            record.total_repaid = float(data['total_repaid'])
+        if data.get('outstanding_amount') is not None:
+            record.outstanding_amount = float(data['outstanding_amount'])
+        if data.get('status'):
+            record.status = data['status']
+        if 'notes' in data:
+            record.notes = data['notes']
+        
+        db.session.commit()
+        return jsonify(record.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/lending/summary', methods=['GET'])
+@api_login_required
+def get_lending_summary():
+    """Get lending summary"""
+    try:
+        records = LendingRecord.query.all()
+        total_outstanding = sum(rec.outstanding_amount or 0 for rec in records if rec.status == 'active')
+        
+        return jsonify({
+            'total_records': len(records),
+            'active_records': len([r for r in records if r.status == 'active']),
+            'total_outstanding': total_outstanding,
+            'records': [rec.to_dict() for rec in records]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Other Investments Routes
+@app.route('/api/other-investments', methods=['GET'])
+@api_login_required
+def get_other_investments():
+    """Get all other investments"""
+    try:
+        investments = OtherInvestment.query.all()
+        return jsonify([inv.to_dict() for inv in investments])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/other-investments', methods=['POST'])
+@api_login_required
+def add_other_investment():
+    """Add new other investment"""
+    try:
+        data = request.json
+        
+        required_fields = ['investment_type', 'description', 'purchase_value']
+        for field in required_fields:
+            if not data or field not in data:
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        purchase_date = None
+        if data.get('purchase_date'):
+            purchase_date = datetime.strptime(data['purchase_date'], '%Y-%m-%d').date()
+        
+        investment = OtherInvestment(
+            investment_type=data['investment_type'],
+            description=data['description'],
+            purchase_value=float(data['purchase_value']),
+            current_value=data.get('current_value'),
+            purchase_date=purchase_date,
+            notes=data.get('notes')
+        )
+        
+        db.session.add(investment)
+        db.session.commit()
+        
+        return jsonify(investment.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/other-investments/<int:inv_id>', methods=['PUT'])
+@api_login_required
+def update_other_investment(inv_id):
+    """Update other investment"""
+    try:
+        investment = OtherInvestment.query.get_or_404(inv_id)
+        data = request.json
+        
+        if data.get('investment_type'):
+            investment.investment_type = data['investment_type']
+        if data.get('description'):
+            investment.description = data['description']
+        if data.get('purchase_value') is not None:
+            investment.purchase_value = float(data['purchase_value'])
+        if data.get('current_value') is not None:
+            investment.current_value = float(data['current_value'])
+        if data.get('purchase_date'):
+            investment.purchase_date = datetime.strptime(data['purchase_date'], '%Y-%m-%d').date()
+        if 'notes' in data:
+            investment.notes = data['notes']
+        
+        investment.last_updated = datetime.now(timezone.utc)
+        db.session.commit()
+        
+        return jsonify(investment.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/other-investments/<int:inv_id>', methods=['DELETE'])
+@api_login_required
+def delete_other_investment(inv_id):
+    """Delete other investment"""
+    try:
+        investment = OtherInvestment.query.get_or_404(inv_id)
+        db.session.delete(investment)
+        db.session.commit()
+        return jsonify({'message': 'Investment deleted successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+# Income & Expense Routes
+@app.route('/api/income/transactions', methods=['GET'])
+@api_login_required
+def get_income_transactions():
+    """Get all income transactions"""
+    try:
+        transactions = IncomeTransaction.query.order_by(IncomeTransaction.transaction_date.desc()).all()
+        return jsonify([txn.to_dict() for txn in transactions])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/income/transactions', methods=['POST'])
+@api_login_required
+def add_income_transaction():
+    """Add income transaction"""
+    try:
+        data = request.json
+        
+        required_fields = ['source', 'amount', 'transaction_date']
+        for field in required_fields:
+            if not data or field not in data:
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        txn_date = datetime.strptime(data['transaction_date'], '%Y-%m-%d').date()
+        
+        transaction = IncomeTransaction(
+            source=data['source'],
+            category=data.get('category'),
+            amount=float(data['amount']),
+            transaction_date=txn_date,
+            is_recurring=data.get('is_recurring', False),
+            description=data.get('description'),
+            notes=data.get('notes')
+        )
+        
+        db.session.add(transaction)
+        db.session.commit()
+        
+        return jsonify(transaction.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/income/transactions/<int:txn_id>', methods=['PUT'])
+@api_login_required
+def update_income_transaction(txn_id):
+    """Update income transaction"""
+    try:
+        transaction = IncomeTransaction.query.get_or_404(txn_id)
+        data = request.json
+        
+        if data.get('source'):
+            transaction.source = data['source']
+        if 'category' in data:
+            transaction.category = data['category']
+        if data.get('amount') is not None:
+            transaction.amount = float(data['amount'])
+        if data.get('transaction_date'):
+            transaction.transaction_date = datetime.strptime(data['transaction_date'], '%Y-%m-%d').date()
+        if 'is_recurring' in data:
+            transaction.is_recurring = data['is_recurring']
+        if 'description' in data:
+            transaction.description = data['description']
+        if 'notes' in data:
+            transaction.notes = data['notes']
+        
+        db.session.commit()
+        return jsonify(transaction.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/income/transactions/<int:txn_id>', methods=['DELETE'])
+@api_login_required
+def delete_income_transaction(txn_id):
+    """Delete income transaction"""
+    try:
+        transaction = IncomeTransaction.query.get_or_404(txn_id)
+        db.session.delete(transaction)
+        db.session.commit()
+        return jsonify({'message': 'Transaction deleted successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/income/summary', methods=['GET'])
+@api_login_required
+def get_income_summary():
+    """Get income summary (monthly/yearly)"""
+    try:
+        from utils.cash_flow import calculate_monthly_cash_flow
+        
+        transactions = IncomeTransaction.query.all()
+        total_income = sum(txn.amount for txn in transactions)
+        
+        # Group by source
+        by_source = {}
+        for txn in transactions:
+            source = txn.source
+            if source not in by_source:
+                by_source[source] = 0
+            by_source[source] += txn.amount
+        
+        return jsonify({
+            'total_income': total_income,
+            'by_source': by_source,
+            'transaction_count': len(transactions)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/income/categories', methods=['GET'])
+@api_login_required
+def get_income_categories():
+    """Get income breakdown by category"""
+    try:
+        transactions = IncomeTransaction.query.all()
+        
+        by_category = {}
+        for txn in transactions:
+            category = txn.category or 'Uncategorized'
+            if category not in by_category:
+                by_category[category] = 0
+            by_category[category] += txn.amount
+        
+        return jsonify(by_category)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Expense Routes
+@app.route('/api/expenses/transactions', methods=['GET'])
+@api_login_required
+def get_expense_transactions():
+    """Get all expense transactions"""
+    try:
+        transactions = ExpenseTransaction.query.order_by(ExpenseTransaction.transaction_date.desc()).all()
+        return jsonify([txn.to_dict() for txn in transactions])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/expenses/transactions', methods=['POST'])
+@api_login_required
+def add_expense_transaction():
+    """Add expense transaction"""
+    try:
+        data = request.json
+        
+        required_fields = ['category', 'amount', 'transaction_date']
+        for field in required_fields:
+            if not data or field not in data:
+                return jsonify({'error': f'{field} is required'}), 400
+        
+        txn_date = datetime.strptime(data['transaction_date'], '%Y-%m-%d').date()
+        
+        transaction = ExpenseTransaction(
+            category=data['category'],
+            subcategory=data.get('subcategory'),
+            amount=float(data['amount']),
+            transaction_date=txn_date,
+            payment_method=data.get('payment_method'),
+            is_recurring=data.get('is_recurring', False),
+            description=data.get('description'),
+            notes=data.get('notes')
+        )
+        
+        db.session.add(transaction)
+        db.session.commit()
+        
+        return jsonify(transaction.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/expenses/transactions/<int:txn_id>', methods=['PUT'])
+@api_login_required
+def update_expense_transaction(txn_id):
+    """Update expense transaction"""
+    try:
+        transaction = ExpenseTransaction.query.get_or_404(txn_id)
+        data = request.json
+        
+        if data.get('category'):
+            transaction.category = data['category']
+        if 'subcategory' in data:
+            transaction.subcategory = data['subcategory']
+        if data.get('amount') is not None:
+            transaction.amount = float(data['amount'])
+        if data.get('transaction_date'):
+            transaction.transaction_date = datetime.strptime(data['transaction_date'], '%Y-%m-%d').date()
+        if 'payment_method' in data:
+            transaction.payment_method = data['payment_method']
+        if 'is_recurring' in data:
+            transaction.is_recurring = data['is_recurring']
+        if 'description' in data:
+            transaction.description = data['description']
+        if 'notes' in data:
+            transaction.notes = data['notes']
+        
+        db.session.commit()
+        return jsonify(transaction.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/expenses/transactions/<int:txn_id>', methods=['DELETE'])
+@api_login_required
+def delete_expense_transaction(txn_id):
+    """Delete expense transaction"""
+    try:
+        transaction = ExpenseTransaction.query.get_or_404(txn_id)
+        db.session.delete(transaction)
+        db.session.commit()
+        return jsonify({'message': 'Transaction deleted successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/expenses/summary', methods=['GET'])
+@api_login_required
+def get_expense_summary():
+    """Get expense summary (monthly/yearly)"""
+    try:
+        transactions = ExpenseTransaction.query.all()
+        total_expense = sum(txn.amount for txn in transactions)
+        
+        # Group by category
+        by_category = {}
+        for txn in transactions:
+            category = txn.category
+            if category not in by_category:
+                by_category[category] = 0
+            by_category[category] += txn.amount
+        
+        return jsonify({
+            'total_expense': total_expense,
+            'by_category': by_category,
+            'transaction_count': len(transactions)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/expenses/categories', methods=['GET'])
+@api_login_required
+def get_expense_by_category():
+    """Get expense breakdown by category"""
+    try:
+        transactions = ExpenseTransaction.query.all()
+        
+        by_category = {}
+        for txn in transactions:
+            category = txn.category
+            if category not in by_category:
+                by_category[category] = {'total': 0, 'count': 0}
+            by_category[category]['total'] += txn.amount
+            by_category[category]['count'] += 1
+        
+        return jsonify(by_category)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/expenses/trends', methods=['GET'])
+@api_login_required
+def get_expense_trends():
+    """Get monthly expense trends"""
+    try:
+        from utils.cash_flow import get_expense_trends
+        
+        transactions = ExpenseTransaction.query.all()
+        trends = get_expense_trends(transactions, months=12)
+        
+        return jsonify(trends)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Budget Routes
+@app.route('/api/budgets', methods=['GET'])
+@api_login_required
+def get_budgets():
+    """Get all budgets"""
+    try:
+        budgets = Budget.query.all()
+        return jsonify([budget.to_dict() for budget in budgets])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/budgets', methods=['POST'])
+@api_login_required
+def add_budget():
+    """Create new budget"""
+    try:
+        data = request.json
+        
+        if not data or not data.get('category'):
+            return jsonify({'error': 'Category is required'}), 400
+        
+        start_date = None
+        end_date = None
+        if data.get('start_date'):
+            start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+        if data.get('end_date'):
+            end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
+        
+        budget = Budget(
+            category=data['category'],
+            monthly_limit=data.get('monthly_limit'),
+            annual_limit=data.get('annual_limit'),
+            start_date=start_date,
+            end_date=end_date,
+            is_active=data.get('is_active', True),
+            notes=data.get('notes')
+        )
+        
+        db.session.add(budget)
+        db.session.commit()
+        
+        return jsonify(budget.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/budgets/<int:budget_id>', methods=['PUT'])
+@api_login_required
+def update_budget(budget_id):
+    """Update budget"""
+    try:
+        budget = Budget.query.get_or_404(budget_id)
+        data = request.json
+        
+        if data.get('category'):
+            budget.category = data['category']
+        if data.get('monthly_limit') is not None:
+            budget.monthly_limit = float(data['monthly_limit'])
+        if data.get('annual_limit') is not None:
+            budget.annual_limit = float(data['annual_limit'])
+        if data.get('start_date'):
+            budget.start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+        if data.get('end_date'):
+            budget.end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
+        if 'is_active' in data:
+            budget.is_active = data['is_active']
+        if 'notes' in data:
+            budget.notes = data['notes']
+        
+        db.session.commit()
+        return jsonify(budget.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/budgets/<int:budget_id>', methods=['DELETE'])
+@api_login_required
+def delete_budget(budget_id):
+    """Delete budget"""
+    try:
+        budget = Budget.query.get_or_404(budget_id)
+        db.session.delete(budget)
+        db.session.commit()
+        return jsonify({'message': 'Budget deleted successfully'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/budgets/status', methods=['GET'])
+@api_login_required
+def get_budget_status():
+    """Get budget vs actual comparison"""
+    try:
+        budgets = Budget.query.filter_by(is_active=True).all()
+        expenses = ExpenseTransaction.query.all()
+        
+        # Get current month expenses
+        from datetime import date
+        today = date.today()
+        current_month_expenses = [e for e in expenses if e.transaction_date.month == today.month and e.transaction_date.year == today.year]
+        
+        # Group expenses by category
+        expenses_by_category = {}
+        for expense in current_month_expenses:
+            cat = expense.category
+            if cat not in expenses_by_category:
+                expenses_by_category[cat] = 0
+            expenses_by_category[cat] += expense.amount
+        
+        # Compare with budgets
+        budget_status = []
+        for budget in budgets:
+            actual = expenses_by_category.get(budget.category, 0)
+            limit = budget.monthly_limit or 0
+            
+            percentage = (actual / limit * 100) if limit > 0 else 0
+            status = 'over' if actual > limit else ('warning' if percentage >= 80 else 'ok')
+            
+            budget_status.append({
+                'category': budget.category,
+                'limit': limit,
+                'actual': actual,
+                'remaining': limit - actual,
+                'percentage': round(percentage, 2),
+                'status': status
+            })
+        
+        return jsonify(budget_status)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Dashboard Routes
+@app.route('/api/dashboard/net-worth', methods=['GET'])
+@api_login_required
+def get_net_worth():
+    """Get total net worth across all assets"""
+    try:
+        from utils.net_worth import calculate_total_net_worth
+        
+        # Get all assets
+        all_assets = {
+            'stocks': PortfolioTransaction.query.all(),
+            'mutual_funds': MutualFundTransaction.query.all(),
+            'fixed_deposits': FixedDeposit.query.all(),
+            'epf': EPFAccount.query.all(),
+            'nps': NPSAccount.query.all(),
+            'savings': SavingsAccount.query.all(),
+            'lending': LendingRecord.query.filter_by(status='active').all(),
+            'other': OtherInvestment.query.all()
+        }
+        
+        net_worth_data = calculate_total_net_worth(all_assets)
+        
+        return jsonify(net_worth_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dashboard/asset-allocation', methods=['GET'])
+@api_login_required
+def get_asset_allocation():
+    """Get asset allocation (equity/debt/cash/other)"""
+    try:
+        from utils.net_worth import get_asset_allocation
+        
+        all_assets = {
+            'stocks': PortfolioTransaction.query.all(),
+            'mutual_funds': MutualFundTransaction.query.all(),
+            'fixed_deposits': FixedDeposit.query.all(),
+            'epf': EPFAccount.query.all(),
+            'nps': NPSAccount.query.all(),
+            'savings': SavingsAccount.query.all(),
+            'lending': LendingRecord.query.filter_by(status='active').all(),
+            'other': OtherInvestment.query.all()
+        }
+        
+        allocation = get_asset_allocation(all_assets)
+        
+        return jsonify(allocation)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dashboard/cash-flow', methods=['GET'])
+@api_login_required
+def get_cash_flow():
+    """Get income vs expenses (monthly)"""
+    try:
+        from utils.cash_flow import calculate_monthly_cash_flow
+        
+        income = IncomeTransaction.query.all()
+        expenses = ExpenseTransaction.query.all()
+        
+        # Get date range (last 12 months)
+        from datetime import date, timedelta
+        end_date = date.today()
+        start_date = end_date - timedelta(days=365)
+        
+        cash_flow = calculate_monthly_cash_flow(income, expenses, start_date, end_date)
+        
+        return jsonify(cash_flow)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dashboard/summary', methods=['GET'])
+@api_login_required
+def get_dashboard_summary():
+    """Get unified dashboard summary"""
+    try:
+        # Count holdings across all assets
+        stock_holdings = len([h for h in calculate_holdings(PortfolioTransaction.query.all()).values() if h['quantity'] > 0])
+        mf_count = MutualFund.query.count()
+        fd_count = FixedDeposit.query.filter_by(status='active').count()
+        savings_count = SavingsAccount.query.count()
+        
+        # Calculate total invested
+        stock_invested = sum(h['invested_amount'] for h in calculate_holdings(PortfolioTransaction.query.all()).values())
+        fd_invested = sum(fd.principal_amount for fd in FixedDeposit.query.filter_by(status='active').all())
+        epf_balance = sum(acc.current_balance for acc in EPFAccount.query.all())
+        nps_value = sum(acc.current_value for acc in NPSAccount.query.all())
+        savings_balance = sum(acc.current_balance for acc in SavingsAccount.query.all())
+        
+        total_invested = stock_invested + fd_invested + epf_balance + nps_value + savings_balance
+        
+        return jsonify({
+            'total_holdings': stock_holdings + mf_count + fd_count + savings_count,
+            'stock_holdings': stock_holdings,
+            'mf_holdings': mf_count,
+            'fd_count': fd_count,
+            'savings_accounts': savings_count,
+            'total_invested': round(total_invested, 2)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dashboard/unified-xirr', methods=['GET'])
+@api_login_required
+def get_unified_xirr():
+    """Get unified XIRR across all asset types (Phase 3)"""
+    try:
+        from utils import calculate_unified_portfolio_xirr
+        
+        # Gather all assets
+        all_assets = {
+            'stocks': PortfolioTransaction.query.all(),
+            'mutual_funds': MutualFundTransaction.query.all(),
+            'fixed_deposits': FixedDeposit.query.all(),
+            'epf': EPFAccount.query.all(),
+            'nps': NPSAccount.query.all(),
+            'savings': SavingsAccount.query.all(),
+            'lending': LendingRecord.query.filter_by(status='active').all(),
+            'other': OtherInvestment.query.all()
+        }
+        
+        xirr_data = calculate_unified_portfolio_xirr(all_assets)
+        
+        return jsonify(xirr_data)
+    except Exception as e:
+        print(f"ERROR in get_unified_xirr: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+# Global Settings Routes
+@app.route('/api/settings/global', methods=['GET'])
+@api_login_required
+def get_global_settings():
+    """Get global settings"""
+    try:
+        settings = GlobalSettings.query.first()
+        if not settings:
+            # Create default settings
+            settings = GlobalSettings()
+            db.session.add(settings)
+            db.session.commit()
+        
+        return jsonify(settings.to_dict())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/settings/global', methods=['PUT'])
+@api_login_required
+def update_global_settings():
+    """Update global settings"""
+    try:
+        settings = GlobalSettings.query.first()
+        if not settings:
+            settings = GlobalSettings()
+            db.session.add(settings)
+        
+        data = request.json
+        
+        if data.get('max_equity_allocation_pct') is not None:
+            settings.max_equity_allocation_pct = float(data['max_equity_allocation_pct'])
+        if data.get('max_debt_allocation_pct') is not None:
+            settings.max_debt_allocation_pct = float(data['max_debt_allocation_pct'])
+        if data.get('min_emergency_fund_months') is not None:
+            settings.min_emergency_fund_months = int(data['min_emergency_fund_months'])
+        if data.get('monthly_income_target') is not None:
+            settings.monthly_income_target = float(data['monthly_income_target'])
+        if data.get('monthly_expense_target') is not None:
+            settings.monthly_expense_target = float(data['monthly_expense_target'])
+        if data.get('currency'):
+            settings.currency = data['currency']
+        
+        settings.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        
+        return jsonify(settings.to_dict())
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 

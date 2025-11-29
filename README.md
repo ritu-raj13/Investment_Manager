@@ -1,586 +1,290 @@
-# Investment Manager 🚀
+# Personal Finance Manager
 
-A **production-ready** stock tracking and portfolio management application with secure authentication, cloud deployment, and multi-device access. Track your Indian equity investments from anywhere - laptop, mobile, or tablet!
+A comprehensive personal finance management platform for tracking stocks, mutual funds, fixed deposits, EPF, NPS, savings, lending, income, expenses, and budgets - all in one place.
 
-## 🌟 **NEW: Production-Ready Features**
-
-- 🔐 **Secure Authentication** - Single-user login with password hashing
-- ☁️ **Cloud Deployment Ready** - Deploy to Railway, Heroku, or Render in 30 minutes
-- 📱 **Multi-Device Access** - Use on laptop, mobile, tablet simultaneously
-- 🔄 **Automatic Data Sync** - Centralized PostgreSQL database
-- 🛡️ **Enterprise Security** - Rate limiting, CSRF protection, secure sessions
-- 🌐 **Access Anywhere** - Any device, any network, always synced
-
-**👉 Want to deploy? Start here:** [docs/DEPLOYMENT_QUICKSTART.md](docs/DEPLOYMENT_QUICKSTART.md)
+**Project Status:** 🎉 **Phase 3 COMPLETE + Swing Trading Enhanced**  
+**Last Updated:** November 29, 2025  
+**Production Ready:** ✅ Yes
 
 ---
 
-## 📚 Documentation
+## Quick Links
 
-### 🚀 **Quick Start**
-- **[START_HERE.md](START_HERE.md)** ⭐ **5-minute quickstart guide**
-- **[docs/DEPLOYMENT_QUICKSTART.md](docs/DEPLOYMENT_QUICKSTART.md)** - Complete 30-minute deployment guide
+- **[Getting Started](GETTING_STARTED.md)** - Setup and installation (15 minutes)
+- **[Features](docs/FEATURES.md)** - Feature guide with examples
+- **[Roadmap](ROADMAP.md)** - Current status and future plans
+- **[Contributing](CONTRIBUTING.md)** - How to extend the platform
 
-### 📖 **Features & API**
-- **[docs/FEATURES.md](docs/FEATURES.md)** ⭐ **Complete feature documentation** (P/L tracking, allocation colors, etc.)
-- **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** - Complete REST API documentation
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design, data flow, and technical architecture
+---
 
-### 🔧 **Setup & Development**
-- **[docs/SETUP_INSTRUCTIONS.md](docs/SETUP_INSTRUCTIONS.md)** - Detailed installation and troubleshooting guide
-- **[docs/WINDOWS_SETUP_NOTE.md](docs/WINDOWS_SETUP_NOTE.md)** - Windows-specific setup notes
-- **[docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)** - Codebase organization
+## What's Ready Now
 
-### 🔮 **Roadmap**
-- **[docs/FUTURE_FEATURES.md](docs/FUTURE_FEATURES.md)** - Planned enhancements
+### ✅ Fully Functional - All Features Ready!
+- **Dashboard** - Net worth, asset allocation, cash flow
+- **Stock Tracking** - Full CRUD, FIFO P/L, XIRR, holding periods
+- **Portfolio Management** - Transaction tracking, realized/unrealized P/L, multi-step buy/sell
+- **Swing Trading** - Projected portfolio planning, parent sector grouping, 3-tier market cap limits
+- **Mutual Funds** - Schemes, transactions, holdings, SIP, XIRR
+- **Fixed Income** - FD with maturity tracking, EPF, NPS
+- **Savings & Accounts** - Savings accounts, lending tracker, other investments
+- **Income & Expenses** - Transaction tracking, budgets, trends
+- **Reports** - Net worth trends, allocation evolution, tax summary
+- **Analytics** - Charts, top gainers/losers, sector/market cap allocation, parent sector management
+- **Health Metrics** - Concentration, diversification analysis
+- **Recommendations** - Rebalancing suggestions (attention-sorted), price zone alerts
+- **Settings** - Import/export, database backup/restore, configurable limits
 
-## ✨ Features
+See [docs/PHASE2_SUMMARY.md](docs/PHASE2_SUMMARY.md) for detailed Phase 2 implementation summary.
 
-### 📊 Stock Tracking
-- Track multiple stocks with buy/sell/average zone prices
-- Organize stocks by groups (patterns like "Bull Run", "Cup with Handle")
-- Categorize by sector and market cap (Large/Mid/Small/Micro)
-- **Search functionality** - Find stocks by name, symbol, sector, status, or market cap
-- **Simple status tracking** - Watching (grey) and Holding (purple)
-- **Expand/Collapse All groups** - Quick view control with one click
-- **Refresh Alert Stocks** - One-click refresh for all stocks appearing in Analytics alerts
-  - Automatically identifies stocks in/near buy/sell/average zones
-  - Only refreshes alert stocks (faster than refreshing all)
-  - Orange button for quick access
-- Status indicators (Watching, Buy Zone, Sell Zone, Hold Zone, Average Zone)
-- **Automated price fetching** using web scraping
-- Notes for analysis and reasoning
+---
 
-### 💼 Portfolio Management
-- **Manual Total Amount** - Set your target portfolio size for allocation tracking
-  - Editable field at top of page with save/cancel
-  - Persists across sessions in database
-  - Use for planned portfolio allocation calculations
-- **Current Holdings** - Complete holdings view with sorting
-  - **Sticky Headers** - Column headers remain visible while scrolling through holdings
-  - **Sortable columns** - Click to sort by Invested Amount, Unrealized P/L, or Return %
-  - **% of Total with Smart Colors** - Real-time allocation with color coding by market cap:
-    - 🔴 Red: Over-allocated (> threshold + 0.5%)
-    - 🟢 Green: Well-allocated (at threshold to +0.5%)
-    - 🟠 Orange: Under-allocated (< threshold)
-    - Thresholds: Large Cap 5%, Mid Cap 3%, Small Cap 2%
-  - **1D Change %** - Daily change percentage for each stock (green/red chips)
-  - Symbol display without .NS/.BO suffix (clean view)
-  - Real-time portfolio valuation with color-coded gains/losses
-- **Profit & Loss Tracking**
-  - **💰 Realized P/L** - Actual profit/loss from completed SELL transactions
-  - **📈 Unrealized P/L** - Paper gains/losses on current holdings
-  - Per-stock and total portfolio P/L metrics
-  - Accurate average cost basis calculation (FIFO method)
-- **Transaction History** - All buy/sell transactions with clean symbol display
-- **Search by symbol** - Quick filtering in both tabs
-- **Portfolio summary cards** - Total invested, current value, realized P/L, unrealized P/L, 1 day change (5 cards)
-- **Active Holdings Count** - See number of stocks held and total transactions
-- Track quantity, average price, and transaction history
-- Document reasons for each trade
-- Simplified transaction form (symbol, quantity, price, reason)
+## Project Evolution
 
-### 📊 Analytics Dashboard
-- **Action Items Card** - Prominent display of stocks requiring attention
-- **Top Gainers/Losers** - Visual display of best/worst performing stocks
-  - Top 5 Gainers (green cards with percentage and absolute gain)
-  - Top 5 Losers (red cards with percentage and absolute loss)
-  - Filtered by actual positive/negative returns (no false positives)
-- **Interactive charts** - Visual portfolio insights with enhanced tooltips
-  - Portfolio Value comparison (Invested vs Current)
-  - Sector Allocation pie chart with hover tooltips showing:
-    - 📊 Stock count in each sector
-    - Total invested amount
-  - Market Cap Allocation pie chart with hover tooltips showing:
-    - 📊 Stock count in each market cap category
-    - Total invested amount
-- **Smart action items** - Intelligent alerts filtered by holdings
-  - Buy Zone alerts → Only for stocks you DON'T own (entry opportunities)
-  - Sell Zone alerts → Only for stocks you DO own (exit opportunities)
-  - Average Zone alerts → Only for stocks you DO own (averaging opportunities)
-- **Six alert types** - In/Near Buy, Sell, and Average zones (±3% threshold)
-- **Fast performance** - Uses prices from Stock Tracking (no redundant API calls)
+**From:** Stock Investment Tracker (3 models, 22 endpoints)  
+**To:** Personal Finance Manager (14 models, 96 endpoints)  
+**Timeline:** October-November 2025  
+**Migration:** Zero data loss, all existing features preserved
 
-### 🎨 Modern UI
-- Beautiful dark mode interface
-- **Sticky navigation bar** - Tabs stay visible when scrolling
-- **Back to top button** - Floating button appears when scrolling down
-- Card-based layout with grouping
-- Responsive design for all screen sizes
-- Glass-morphism effects on navigation
-- Smooth animations and transitions
-- Collapsible groups for better organization
-- Color-coded status indicators
+### Asset Classes Supported
 
-### ⚙️ Data Management
-- **Import/Export CSV** - Import and export stocks and transactions
-- **Database Backup** - One-click full database backup (.db file)
-- **Database Restore** - Restore from previous backups
-- Settings page with all data management tools
+| Category | Assets | Status |
+|----------|--------|--------|
+| **Equity** | Stocks, Mutual Funds | Stocks ✅, MF 🔨 |
+| **Fixed Income** | FD, EPF, NPS | Backend ✅, Frontend 🔨 |
+| **Savings** | Savings/Current Accounts | Backend ✅, Frontend 🔨 |
+| **Alternative** | Lending, Gold, Bonds, Crypto | Backend ✅, Frontend 🔨 |
+| **Cash Flow** | Income, Expenses, Budgets | Backend ✅, Frontend 🔨 |
 
-### 🔄 Automated Data & Price Fetching
-- **Screener.in integration** (primary) - Auto-fetches company name + price from symbol
-- **Web scraping** from Google Finance, Moneycontrol, Investing.com (fallbacks)
-- NSE India API (fallback)
-- Yahoo Finance API (last resort)
-- **Smart auto-fetch** - Just enter symbol, name & price populate automatically!
-- **Smart status** - Auto-sets Watching or Holding based on portfolio holdings
-- One-click "Refresh Alert Stocks" for targeted updates
-- One-click "Refresh Prices" for all stocks
-- Works for ALL Indian stocks (NSE/BSE)
+✅ = Production Ready | 🔨 = In Progress
 
-## 🚀 Quick Start
+---
 
-### Option 1: Test Production Mode Locally ⭐ **Recommended**
+## Getting Started
 
-Test the production-ready app with authentication before deploying:
+### Quick Setup
 
+For complete installation instructions and troubleshooting, see **[GETTING_STARTED.md](GETTING_STARTED.md)** (15 minutes to get running).
+
+**Quick version:**
 ```bash
-# Windows
-test_production_locally.bat
-
-# Mac/Linux
-chmod +x test_production_locally.sh
-./test_production_locally.sh
+# Backend: cd backend → create venv → activate → pip install -r requirements.txt → python app.py
+# Frontend: cd frontend → npm install → npm start
+# Access: http://localhost:3000
 ```
 
-Then in another terminal:
-```bash
-cd frontend
-npm install
-npm start
+**Prerequisites:** Python 3.8+, Node.js 14+
+
+---
+
+## Documentation Roadmap
+
+**Where do I start?**
+
+### For End Users
+
+```
+1. README.md (this file) - Overview
+   ↓
+2. GETTING_STARTED.md - Setup (15 min)
+   ↓
+3. docs/FEATURES.md - Feature guide
+   ↓
+4. ROADMAP.md - What's coming next
 ```
 
-**Login Credentials (local testing):**
-- Username: `admin`
-- Password: `admin123`
+### For Developers
 
-### Option 2: Development Mode (No Authentication)
-
-### Prerequisites
-- Python 3.8 or higher
-- Node.js 14 or higher
-- npm or yarn
-
-### Installation
-
-#### 1. Backend Setup
-
-```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-# Mac/Linux:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the Flask server
-python app.py
+```
+1. README.md (this file) - Overview
+   ↓
+2. GETTING_STARTED.md - Setup
+   ↓
+3. docs/ARCHITECTURE.md - Technical design
+   ↓
+4. docs/API_REFERENCE.md - API docs
+   ↓
+5. CONTRIBUTING.md - How to extend
+   ↓
+6. ROADMAP.md - Implementation plan
 ```
 
-Backend runs at: `http://localhost:5000`
+### For DevOps
 
-#### 2. Frontend Setup
-
-Open a new terminal:
-
-```bash
-cd frontend
-
-# Install dependencies
-npm install
-
-# Start React app
-npm start
+```
+1. README.md (this file) - Overview
+   ↓
+2. GETTING_STARTED.md - Installation
+   ↓
+3. docs/ARCHITECTURE.md - System design
+   ↓
+4. docs/API_REFERENCE.md - Integration
 ```
 
-Frontend opens at: `http://localhost:3000`
+---
 
-## 📖 Usage Guide
+## Key Features
 
-### Adding Stocks
+### Stock Investment Tracking + Swing Trading
+- **Projected Portfolio Planning** - Set target amount with target date
+- **Multi-Step Buy/Sell** - Track 3-step buys, 2-step sells with avg price
+- **Parent Sector Grouping** - Group related sectors, limit stocks per parent
+- **Three-Tier Market Cap Limits:**
+  - Per-stock % caps (Large: 5%, Mid: 3%, Small: 2.5%, Micro: 2%)
+  - Stock count limits (Large: 15, Mid: 8, Small: 7, Micro: 3)
+  - Portfolio % limits (Large: 50%, Mid: 30%, Small: 25%, Micro: 10%)
+- **Attention-Sorted Rebalancing** - Problem stocks/sectors shown first
+- Multi-stock tracking with price zones (buy/sell/average)
+- FIFO P/L tracking (realized + unrealized)
+- XIRR calculation for portfolio returns
+- Holding period tracking (FIFO-weighted)
+- Automated price fetching (multi-source fallback)
+- Smart alerts (buy/sell/average zones)
+- Allocation monitoring (market cap, sector, parent sector)
+- Color-coded allocation thresholds with 0.5% leverage
+- Import/Export CSV
+- Database backup/restore
 
-1. Go to **Stock Tracking** tab
-2. Click **Add Stock**
-3. Enter stock symbol and let it auto-fetch details:
-   ```
-   Symbol: RELIANCE.NS (for NSE) or RELIANCE.BO (for BSE)
-   [Tab out - name & price auto-fetch from Screener.in!]
-   
-   Name: [Auto-filled: Reliance Industries]
-   Current Price: [Auto-filled: ₹2,750.50]
-   Status: [Auto-set: Watching or Holding based on your portfolio]
-   
-   Group: Bull Run (optional)
-   Market Cap: Large (optional)
-   Sector: Energy (optional)
-   Buy Zone: 2400-2600 (or exact: 2500)
-   Sell Zone: 2800-3000 (or exact: 2900)
-   Average Zone: 2650-2750
-   Notes: Strong fundamentals
-   ```
-4. Click **Add Stock**
-5. Price fetches automatically, or click **Refresh Prices** later
+### Personal Finance Dashboard (NEW)
+- Net worth across all assets
+- Asset allocation visualization (equity/debt/cash)
+- Cash flow charts (income vs expenses)
+- Quick stats and breakdowns
 
-**Tip:** Add all stocks first (leave price blank), then click "Refresh Prices" once to update all prices together!
+### Backend Infrastructure (Complete)
+- 14 database models
+- 96 REST API endpoints
+- FIFO accounting for stocks and mutual funds
+- XIRR calculation (Newton-Raphson)
+- Cash flow analysis
+- Net worth aggregation
+- Budget tracking
 
-### Data Management (Settings Page)
+---
 
-**Export Data:**
-1. Go to **Settings** tab
-2. Click **Export Stocks CSV** or **Export Transactions CSV**
-3. File downloads automatically with timestamp
+## Technology Stack
 
-**Import Data:**
-1. Go to **Settings** tab
-2. Click **Choose File** button for Stocks or Transactions
-3. Select your CSV file
-4. Confirm import → Data is added automatically
+**Backend:** Python, Flask, SQLAlchemy, SQLite  
+**Frontend:** React, Material-UI, Recharts, Axios  
+**Data Sources:** Web scraping (Google Finance, Moneycontrol), Yahoo Finance API
 
-**Backup Database:**
-1. Go to **Settings** tab
-2. Click **Backup Database**
-3. Complete .db file downloads with timestamp
-4. Store safely (external drive, cloud storage)
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical design.
 
-**Restore Database:**
-1. Go to **Settings** tab  
-2. Click **Choose Database File**
-3. Select your backup .db file
-4. Confirm → Current data backed up automatically before restore
-5. Page reloads with restored data
+---
 
-### Refreshing Prices
-
-**Best Practice Workflow:**
-1. Add all your stocks (leave Current Price blank)
-2. Click **"Refresh Prices"** button once
-3. All stock prices fetch automatically in 10-30 seconds
-4. Repeat daily or as needed
-
-**Benefits:**
-- Faster than entering prices manually
-- More accurate (live data)
-- One-click update for all stocks
-
-### Managing Portfolio
-
-**Setting Up Total Amount (for % Allocation):**
-1. Go to **My Portfolio** tab
-2. At the top, click **Edit** on "Total Portfolio Amount"
-3. Enter your target portfolio size (e.g., ₹5,00,000)
-4. Click **Save**
-5. The % allocation for each stock will calculate based on this amount
-
-**Adding Transactions:**
-1. Go to **My Portfolio** tab
-2. Click **Add Transaction**
-3. Fill in transaction details:
-   - Stock symbol and name
-   - Transaction type (BUY/SELL)
-   - Quantity and price
-   - Date and reason
-4. View performance in two tabs:
-   - **Current Holdings**: Live P&L for each stock with % allocation
-   - **Transaction History**: Complete trade log
-
-**Understanding % Allocation:**
-- Shows what % of your TOTAL target amount each stock represents
-- Example: If you set ₹5L target and invest ₹1L in a stock → shows 20%
-- Helps maintain planned portfolio allocation
-- Updates dynamically as you add/remove transactions
-
-## 🛠️ Technology Stack
-
-### Backend
-- **Flask** - Python web framework
-- **Flask-Login** - User authentication & session management
-- **Flask-Limiter** - Rate limiting (brute-force protection)
-- **Flask-CORS** - Cross-origin resource sharing
-- **SQLAlchemy** - ORM for database
-- **PostgreSQL** (production) / **SQLite** (development)
-- **Gunicorn** - Production WSGI server
-- **BeautifulSoup4** + **lxml** - Web scraping for prices
-- **Requests** - HTTP client
-- **yfinance** - Yahoo Finance API (fallback)
-- **bcrypt / werkzeug** - Password hashing
-- **python-dotenv** - Environment variable management
-- **Pandas** - CSV import/export
-
-### Frontend
-- **React** - UI framework with Hooks
-- **Material-UI (MUI)** - Component library (dark theme)
-- **Axios** - HTTP client with auth interceptors
-- **Recharts** - Data visualization
-
-### Security & Deployment
-- **bcrypt password hashing** - Secure credential storage
-- **Session-based authentication** - HTTPOnly cookies
-- **CSRF protection** - Flask-WTF tokens
-- **Rate limiting** - 5 login attempts/minute
-- **Environment-based configuration** - Dev/Production separation
-- **HTTPS** - Enforced in production (Railway/Heroku/Render)
-- **PostgreSQL connection pooling** - Production database
-- **Database migration tools** - SQLite → PostgreSQL
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 Investment_Manager/
 ├── backend/
-│   ├── app.py                      # Flask API server
-│   ├── config/                     # Environment configurations
-│   │   ├── base.py                # Shared settings
-│   │   ├── development.py         # Dev (SQLite)
-│   │   └── production.py          # Prod (PostgreSQL)
-│   ├── utils/                      # Utility modules
-│   │   ├── auth.py                # Authentication
-│   │   ├── holdings.py            # P/L calculations
-│   │   ├── zones.py               # Price zones
-│   │   └── helpers.py             # General utilities
+│   ├── app.py                      # Main Flask app (80+ endpoints)
+│   ├── utils/                      # Utility functions
+│   │   ├── holdings.py            # FIFO P/L calculations
+│   │   ├── mutual_funds.py        # MF calculations
+│   │   ├── cash_flow.py           # Income/expense analysis
+│   │   ├── net_worth.py           # Net worth aggregation
+│   │   └── xirr.py                # XIRR calculations
 │   ├── services/                   # External services
-│   │   ├── price_scraper.py       # Web scraping
-│   │   └── nse_api.py             # NSE API
-│   ├── migrations/                 # DB migrations
-│   ├── instance/                   # SQLite database (dev)
-│   └── requirements.txt            # Python dependencies
+│   │   ├── price_scraper.py       # Multi-source scraping
+│   │   └── mf_api.py              # MF NAV fetching
+│   └── instance/                   # SQLite database
+│
 ├── frontend/
 │   ├── src/
+│   │   ├── App.js                  # Main component (9 tabs)
 │   │   ├── components/
-│   │   │   ├── Login.js           # Authentication
-│   │   │   ├── StockTracking.js   # Stock tracking
-│   │   │   ├── Portfolio.js        # Portfolio & P/L
-│   │   │   ├── Analytics.js        # Analytics dashboard
-│   │   │   └── Settings.js         # Settings & exports
-│   │   ├── services/
-│   │   │   └── api.js              # API client (axios)
-│   │   ├── App.js                  # Main app component
-│   │   └── index.js                # Entry point
-│   ├── public/
-│   └── package.json                # Node dependencies
+│   │   │   ├── Dashboard.js       # Net worth dashboard
+│   │   │   ├── StockTracking.js   # Stock CRUD
+│   │   │   ├── Portfolio.js        # Transactions, P/L
+│   │   │   ├── Analytics.js        # Charts, insights
+│   │   │   ├── Health.js           # Financial health metrics
+│   │   │   ├── Settings.js         # Global settings
+│   │   │   └── ...
+│   │   └── services/
+│   │       └── api.js              # Axios client (20 API modules)
+│   └── package.json
+│
+├── testing/                         # Test suite (NEW)
+│   ├── conftest.py                 # Pytest fixtures
+│   ├── pytest.ini                  # Pytest configuration
+│   ├── requirements.txt            # Test dependencies
+│   ├── test_all_apis_part1.py      # Auth, Stock, Portfolio, MF tests
+│   ├── test_all_apis_part2.py      # FD, EPF, NPS, Savings tests
+│   ├── test_all_apis_part3.py      # Income, Expense, Dashboard tests
+│   ├── run_api_tests.sh            # Test runner (Linux/Mac)
+│   ├── run_api_tests.bat           # Test runner (Windows)
+│   ├── README.md                   # Test documentation
+│   └── SUMMARY.md                  # Test summary
+│
 ├── docs/                            # Documentation
-│   ├── FEATURES.md                 # Feature documentation
-│   ├── API_REFERENCE.md            # API docs
-│   ├── ARCHITECTURE.md             # System design
-│   └── ...                         # Setup & deployment guides
-├── scripts/                         # Helper scripts
-│   └── dev/                        # Development scripts
-│       └── start_dev.bat           # Start dev servers
-├── README.md                        # This file
-└── START_HERE.md                    # Quick start guide
+│   ├── ARCHITECTURE.md             # Technical design
+│   ├── API_REFERENCE.md            # API documentation
+│   └── FEATURES.md                 # Feature guide
+│
+├── GETTING_STARTED.md              # Setup guide
+├── CONTRIBUTING.md                 # Developer guide
+├── ROADMAP.md                      # Feature roadmap
+└── README.md                        # This file
 ```
 
-## 🔧 API Endpoints
+---
 
-The application provides a comprehensive REST API with 22 endpoints across 4 categories:
+## Contributing
 
-- **Stock Tracking** (8 endpoints) - CRUD operations, price refresh, auto-fetch
-- **Portfolio Management** (7 endpoints) - Transactions, P&L, settings
-- **Analytics** (1 endpoint) - Dashboard data with action items and charts
-- **Data Management** (6 endpoints) - CSV import/export, database backup/restore
-
-**📖 For complete API documentation, see [API_REFERENCE.md](API_REFERENCE.md)**
-
-### Quick Reference
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/stocks` | GET | List all stocks |
-| `/api/stocks` | POST | Add new stock (auto-fetches details) |
-| `/api/stocks/refresh-prices` | POST | Refresh all stock prices |
-| `/api/stocks/refresh-alert-stocks` | POST | Refresh only alert stocks |
-| `/api/portfolio/transactions` | GET/POST | Manage transactions |
-| `/api/portfolio/summary` | GET | Portfolio P&L summary |
-| `/api/analytics/dashboard` | GET | Analytics data |
-| `/api/export/stocks` | GET | Export stocks to CSV |
-| `/api/backup/database` | GET | Download DB backup |
-
-## 💡 Tips & Best Practices
-
-### Stock Symbols
-- **NSE stocks**: Add `.NS` suffix (e.g., `RELIANCE.NS`, `TCS.NS`)
-- **BSE stocks**: Add `.BO` suffix (e.g., `RELIANCE.BO`)
-
-### Price Updates
-- Click "Refresh Prices" once a day
-- Takes 10-30 seconds for 10-20 stocks
-- Be patient - web scraping needs time
-
-### Portfolio Tracking
-- Record every transaction with reason
-- Use notes to document your analysis
-- Review performance weekly/monthly
-
-### Organization
-- Use Groups for trading patterns (Bull Run, Cup with Handle, etc.)
-- Use Sector for industry classification (FMCG, Banking, IT, etc.)
-- **Price Zones support ranges**: Enter "250-300" or exact "275"
-- Set realistic buy/sell zones based on your analysis
-- Update status as markets move
-
-### Portfolio Allocation
-- Set your **Total Portfolio Amount** to track planned allocation
-- Monitor **% of Total** column to see stock-wise distribution
-- Rebalance when any stock exceeds your target allocation
-- Example: If you plan 10% in tech but have 15% → consider rebalancing
-
-## 🔄 Database Migration
-
-If you have existing data and need to update the database schema:
-
-```bash
-cd backend
-python db_migrator.py
-```
-
-The universal migrator will:
-- Auto-detect missing columns and add them
-- Convert column types if needed (e.g., zones to support ranges)
-- Create backup before migration
-- Run safely multiple times (idempotent)
-
-## 🐛 Troubleshooting
-
-### Backend won't start
-- Check if port 5000 is free
-- Activate virtual environment
-- Install all requirements
-
-### Frontend won't start
-- Check if port 3000 is free
-- Run `npm install` again
-- Delete `node_modules` and reinstall
-
-### Prices not fetching
-- Check internet connection
-- Wait a few seconds between refreshes
-- Web scraping may be temporarily blocked (wait and retry)
-
-### Database errors
-- Run `python migrate_db.py` to update schema
-- Or delete `investment_manager.db` to start fresh
-
-## 📱 **Multi-Device Usage**
-
-Once deployed to the cloud:
-
-1. **Laptop/Desktop:** Bookmark your deployment URL
-2. **Mobile (iOS):** Safari → Share → Add to Home Screen
-3. **Mobile (Android):** Chrome → Menu → Add to Home screen
-4. **Tablet:** Same as mobile
-
-**All devices sync automatically** through the centralized PostgreSQL database!
-
-Access your portfolio from:
-- ✅ Home laptop → Work laptop
-- ✅ WiFi → Mobile data
-- ✅ Café tablet → Office desktop
-- ✅ **Always the same data, always in sync!**
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development setup
+- Component implementation guide
+- Code style and patterns
+- Testing requirements
+- Pull request process
 
 ---
 
-## 💰 **Deployment Costs**
+## Roadmap
 
-### Railway (Recommended) ⭐
-- ~$5-8/month (first $5 free)
-- Easiest setup, auto-deploy from GitHub
-- PostgreSQL included
+### Phase 1: Backend Foundation ✅ COMPLETE
+- 14 database models
+- 96 API endpoints
+- Utility functions (FIFO, XIRR, cash flow)
+- Dashboard component
+- Migration completed (zero data loss)
 
-### Heroku
-- $7/month minimum
-- Well-established, reliable platform
+### Phase 2: Frontend Components ✅ **COMPLETE (100%)**
+- ✅ Income & Expenses component (1100+ lines)
+- ✅ Mutual Funds component (1000+ lines)
+- ✅ Fixed Income component (1200+ lines - FD/EPF/NPS)
+- ✅ Accounts component (1200+ lines - Savings/Lending/Other)
+- ✅ Reports component (900+ lines)
+- All 5 major components fully implemented!
 
-### Render
-- $7/month for backend
-- Free frontend hosting
+### Phase 3: Enhanced Features 🔨 **IN PROGRESS (83% complete - 15/18 items)**
+- ✅ Settings enhancements (global allocation targets)
+- ✅ Health enhancements (debt-to-income, emergency fund, savings rate)
+- ✅ Unified XIRR across all assets
+- ✅ Financial health scoring system
+- ⏭️ Recommendations enhancements → moved to Phase 5
+- ⚠️ Documentation updates (in progress)
+- ⚠️ Comprehensive testing (61% pass rate)
 
-**All include:** SSL/HTTPS, automatic backups, PostgreSQL database
+### Phase 4: Testing & Quality ⏭️ **NEXT**
+- ⚠️ API testing (61% pass rate - 55/90 tests passing)
+- ⏭️ UI, DB, and Performance tests → moved to Phase 5
 
----
-
-## 🎯 Future Enhancements
-
-Potential features for future versions:
-- Multi-user support (family accounts)
-- Debt instruments (Bonds, FDs)
-- Mutual funds tracking
-- Dividend tracking
-- Tax calculation (STCG/LTCG)
-- Price alerts via email/SMS
-- Export to Excel/PDF
-- Native mobile app
-
-## ⚠️ Disclaimer
-
-This is a personal portfolio tracking tool for educational and personal use.
-
-- **Not Financial Advice** - This tool is for tracking only, not for making investment decisions
-- **No Warranty** - Provided "as is" without warranties of any kind
-- **Use at Your Own Risk** - Always verify data independently
-- **For Personal Use** - Designed for individual portfolio management
-
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) file for details.
-
-This project is open source. Feel free to use, modify, and enhance as needed.
-
-## 🤝 Contributing
-
-This is a personal project, but suggestions and improvements are welcome!
-
-## 📧 Support
-
-For issues or questions, please check:
-1. **[README.md](README.md)** - Feature overview and quick start
-2. **[SETUP_INSTRUCTIONS.md](SETUP_INSTRUCTIONS.md)** - Detailed setup and troubleshooting
-3. **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technical details and system design
-4. **[API_REFERENCE.md](API_REFERENCE.md)** - Complete API documentation
-
-## 🏗️ Code Quality
-
-This codebase follows best practices:
-- ✅ **Modular Architecture** - Clear separation of concerns
-- ✅ **DRY Principle** - Utility functions eliminate duplication
-- ✅ **Comprehensive Documentation** - Architecture, API, and setup guides
-- ✅ **Type Hints** - Python type annotations for clarity
-- ✅ **Consistent Naming** - Descriptive function and variable names
-- ✅ **Error Handling** - Graceful failure with multiple fallbacks
-- ✅ **Database Migrations** - Version-aware schema updates
+See [ROADMAP.md](ROADMAP.md) for detailed timeline and features.
 
 ---
 
-## 🎯 Recent Updates (October 31, 2025)
+## License
 
-### User-Configurable Portfolio Settings
-- ✅ Centralized configuration in Settings page
-- ✅ Customize allocation thresholds per your investment strategy
-- ✅ Market Cap limits: Large (50%), Mid (30%), Small (25%), Micro (15%)
-- ✅ Sector diversification limit (20% per sector)
-- ✅ All calculations dynamically use your custom values
-
-### Recommendations & Health Pages
-- ✅ **Recommendations Tab**: Price zone alerts + rebalancing suggestions
-- ✅ **Health Tab**: Portfolio health metrics & concentration analysis
-- ✅ Expandable sections for detailed analysis
-- ✅ Smart alert filtering (buy zones for watching stocks, sell/average for holdings)
-
-### Enhanced Portfolio Features
-- ✅ FIFO-based holding period tracking
-- ✅ XIRR (annualized return) calculation
-- ✅ Realized P/L and Unrealized P/L separation
-- ✅ Color-coded allocation percentages
-- ✅ Sortable columns with default "% of Total" descending sort
+Private project for personal use.
 
 ---
 
-**Built with ❤️ for smart investing**
+## Support
 
-*Last updated: October 31, 2025*
+- **Setup Issues**: See [GETTING_STARTED.md](GETTING_STARTED.md) troubleshooting section
+- **Feature Requests**: See [ROADMAP.md](ROADMAP.md) for feature request process
+- **Technical Questions**: See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design details
+
+---
+
+**Happy financial tracking!** 📊

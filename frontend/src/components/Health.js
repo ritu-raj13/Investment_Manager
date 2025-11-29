@@ -24,9 +24,11 @@ const Health = () => {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [financialHealth, setFinancialHealth] = useState(null); // Phase 3
 
   useEffect(() => {
     fetchHealthData();
+    fetchFinancialHealth(); // Phase 3
   }, []);
 
   const fetchHealthData = async () => {
@@ -40,6 +42,16 @@ const Health = () => {
       console.error('Health error:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchFinancialHealth = async () => {
+    try {
+      // Fetch financial health metrics (Phase 3)
+      const response = await healthAPI.getFinancialHealth();
+      setFinancialHealth(response.data);
+    } catch (err) {
+      console.error('Financial health error:', err);
     }
   };
 
@@ -493,6 +505,147 @@ const Health = () => {
           </Paper>
         </Grid>
       </Grid>
+
+      {/* Phase 3: Enhanced Financial Health Metrics */}
+      {financialHealth && (
+        <Box sx={{ mt: 4 }}>
+          <Typography variant="h5" fontWeight="bold" gutterBottom sx={{ mb: 3 }}>
+            Financial Health (Phase 3)
+          </Typography>
+          
+          <Grid container spacing={3}>
+            {/* Overall Financial Health Score */}
+            <Grid item xs={12}>
+              <Paper sx={{ p: 4, borderRadius: 3, textAlign: 'center', bgcolor: 'rgba(96, 165, 250, 0.05)' }}>
+                <Typography variant="h2" fontWeight="bold" color="primary.main" sx={{ mb: 1 }}>
+                  {financialHealth.financial_health_score}/100
+                </Typography>
+                <Typography variant="h6" gutterBottom>
+                  Overall Financial Health Score
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Comprehensive score based on multiple financial factors
+                </Typography>
+                
+                {/* Score Breakdown */}
+                <Grid container spacing={2} sx={{ mt: 3 }}>
+                  <Grid item xs={6} sm={3}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Emergency Fund</Typography>
+                      <Typography variant="h6" color="success.main">{financialHealth.score_breakdown.emergency_fund_score}/25</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6} sm={3}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Savings Rate</Typography>
+                      <Typography variant="h6" color="primary.main">{financialHealth.score_breakdown.savings_rate_score}/25</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6} sm={3}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Allocation</Typography>
+                      <Typography variant="h6" color="warning.main">{financialHealth.score_breakdown.allocation_score}/25</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6} sm={3}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Debt Management</Typography>
+                      <Typography variant="h6" color="error.main">{financialHealth.score_breakdown.debt_score}/25</Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Grid>
+
+            {/* Emergency Fund Status */}
+            <Grid item xs={12} md={4}>
+              <Paper sx={{ p: 3, borderRadius: 3 }}>
+                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                  Emergency Fund
+                </Typography>
+                <Box sx={{ textAlign: 'center', py: 3 }}>
+                  <Typography variant="h3" fontWeight="bold" color="success.main">
+                    {financialHealth.emergency_fund.months_covered} 
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    months covered
+                  </Typography>
+                  <Chip 
+                    label={`Target: ${financialHealth.emergency_fund.target_months} months`}
+                    size="small"
+                    sx={{ mt: 2 }}
+                    color={financialHealth.emergency_fund.status === 'excellent' ? 'success' : 'warning'}
+                  />
+                </Box>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="caption" color="text.secondary">Current Balance</Typography>
+                <Typography variant="h6">{formatCurrency(financialHealth.emergency_fund.current_balance)}</Typography>
+              </Paper>
+            </Grid>
+
+            {/* Savings Rate */}
+            <Grid item xs={12} md={4}>
+              <Paper sx={{ p: 3, borderRadius: 3 }}>
+                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                  Savings Rate
+                </Typography>
+                <Box sx={{ textAlign: 'center', py: 3 }}>
+                  <Typography variant="h3" fontWeight="bold" color="primary.main">
+                    {financialHealth.savings_rate.current_rate}%
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    of income saved
+                  </Typography>
+                  <Chip 
+                    label={financialHealth.savings_rate.status.replace('_', ' ')}
+                    size="small"
+                    sx={{ mt: 2, textTransform: 'capitalize' }}
+                    color={financialHealth.savings_rate.status === 'excellent' ? 'success' : 'primary'}
+                  />
+                </Box>
+                <Divider sx={{ my: 2 }} />
+                <Grid container spacing={1}>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" color="text.secondary">Monthly Income</Typography>
+                    <Typography variant="body2" fontWeight="medium">{formatCurrency(financialHealth.savings_rate.monthly_income)}</Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" color="text.secondary">Monthly Expense</Typography>
+                    <Typography variant="body2" fontWeight="medium">{formatCurrency(financialHealth.savings_rate.monthly_expense)}</Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Grid>
+
+            {/* Debt-to-Income Ratio */}
+            <Grid item xs={12} md={4}>
+              <Paper sx={{ p: 3, borderRadius: 3 }}>
+                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                  Debt-to-Income
+                </Typography>
+                <Box sx={{ textAlign: 'center', py: 3 }}>
+                  <Typography variant="h3" fontWeight="bold" color="success.main">
+                    {financialHealth.debt_to_income.ratio}%
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    debt ratio
+                  </Typography>
+                  <Chip 
+                    label={financialHealth.debt_to_income.status.replace('_', ' ')}
+                    size="small"
+                    sx={{ mt: 2, textTransform: 'capitalize' }}
+                    color="success"
+                  />
+                </Box>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="caption" color="text.secondary">
+                  Lower is better • &lt;20% excellent • 20-35% good
+                </Typography>
+              </Paper>
+            </Grid>
+          </Grid>
+        </Box>
+      )}
     </Box>
   );
 };

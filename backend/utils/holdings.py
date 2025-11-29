@@ -53,7 +53,8 @@ def calculate_holdings(transactions: List) -> Dict[str, Dict]:
         transactions: List of PortfolioTransaction objects
     
     Returns:
-        Dict mapping symbol to holding data (quantity, invested_amount, realized_pnl, holding_period_days, lots)
+        Dict mapping symbol to holding data (quantity, invested_amount, realized_pnl, holding_period_days, 
+        buy_steps_completed, sell_steps_completed, avg_buy_price, lots)
     """
     holdings = {}
     
@@ -85,7 +86,10 @@ def calculate_holdings(transactions: List) -> Dict[str, Dict]:
                 'invested_amount': 0,
                 'realized_pnl': 0,  # Track profit/loss from SELL transactions
                 'transactions': [],
-                'lots': deque()  # FIFO queue of purchase lots: [(date, quantity, price), ...]
+                'lots': deque(),  # FIFO queue of purchase lots: [(date, quantity, price), ...]
+                'buy_steps_completed': set(),  # Track which buy steps have been completed
+                'sell_steps_completed': set(),  # Track which sell steps have been completed
+                'buy_transactions': [],  # Track all buy transactions for avg price calculation
             }
         
         if txn.transaction_type == 'BUY':
@@ -93,6 +97,15 @@ def calculate_holdings(transactions: List) -> Dict[str, Dict]:
             holdings[symbol]['lots'].append((txn.transaction_date, txn.quantity, txn.price))
             holdings[symbol]['quantity'] += txn.quantity
             holdings[symbol]['invested_amount'] += txn.quantity * txn.price
+            holdings[symbol]['buy_transactions'].append({
+                'date': txn.transaction_date,
+                'quantity': txn.quantity,
+                'price': txn.price,
+                'step': txn.buy_step
+            })
+            # Track buy step
+            if txn.buy_step:
+                holdings[symbol]['buy_steps_completed'].add(txn.buy_step)
             
         elif txn.transaction_type == 'SELL':
             # FIFO: Remove from oldest lots first
@@ -121,6 +134,10 @@ def calculate_holdings(transactions: List) -> Dict[str, Dict]:
             # Reduce quantity and invested amount
             holdings[symbol]['quantity'] -= txn.quantity
             holdings[symbol]['invested_amount'] -= total_cost_basis
+            
+            # Track sell step
+            if txn.sell_step:
+                holdings[symbol]['sell_steps_completed'].add(txn.sell_step)
         
         holdings[symbol]['transactions'].append(txn.to_dict())
     
@@ -128,8 +145,22 @@ def calculate_holdings(transactions: List) -> Dict[str, Dict]:
     for symbol, data in holdings.items():
         data['has_current_holdings'] = data['quantity'] > 0
         data['holding_period_days'] = calculate_holding_period_days(data['lots']) if data['quantity'] > 0 else 0
-        # Remove lots from return data (internal use only)
+        
+        # Calculate average buy price
+        if data['buy_transactions']:
+            total_qty = sum(t['quantity'] for t in data['buy_transactions'])
+            total_value = sum(t['quantity'] * t['price'] for t in data['buy_transactions'])
+            data['avg_buy_price'] = total_value / total_qty if total_qty > 0 else 0
+        else:
+            data['avg_buy_price'] = 0
+        
+        # Convert sets to lists for JSON serialization
+        data['buy_steps_completed'] = sorted(list(data['buy_steps_completed']))
+        data['sell_steps_completed'] = sorted(list(data['sell_steps_completed']))
+        
+        # Remove internal-only data from return
         del data['lots']
+        del data['buy_transactions']
     
     return holdings
 

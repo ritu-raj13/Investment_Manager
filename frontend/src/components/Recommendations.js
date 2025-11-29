@@ -626,28 +626,33 @@ const Recommendations = () => {
           </Accordion>
         )}
 
-        {/* Sector Rebalancing */}
+        {/* Sector Rebalancing (Stock Count Based) */}
         {rebalancing.sector_rebalancing && rebalancing.sector_rebalancing.length > 0 && (
           <Accordion sx={{ mb: 2, borderRadius: 2 }}>
             <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: 'rgba(96, 165, 250, 0.1)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <InfoOutlinedIcon sx={{ color: '#60a5fa', mr: 1 }} />
                 <Typography fontWeight="bold">
-                  Sector Rebalancing Insights
+                  Sector Rebalancing (Stock Count Based)
                 </Typography>
               </Box>
             </AccordionSummary>
             <AccordionDetails>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Strategy: Maximum {rebalancing.sector_rebalancing[0]?.max_stocks_allowed || 2} stocks per sector to maintain diversification
+              </Alert>
               <Grid container spacing={2}>
                 {rebalancing.sector_rebalancing.map((sector, idx) => (
                   <Grid item xs={12} md={6} key={idx}>
                     <Card sx={{ 
                       bgcolor: sector.status === 'overweight' ? 'rgba(248, 113, 113, 0.05)' :
-                                sector.status === 'underweight' ? 'rgba(251, 191, 36, 0.05)' :
+                                sector.status === 'moderate_overweight' ? 'rgba(251, 191, 36, 0.05)' :
+                                sector.status === 'underweight' ? 'rgba(147, 197, 253, 0.05)' :
                                 'rgba(74, 222, 128, 0.05)',
                       borderLeft: `4px solid ${
                         sector.status === 'overweight' ? '#ef4444' :
-                        sector.status === 'underweight' ? '#eab308' :
+                        sector.status === 'moderate_overweight' ? '#eab308' :
+                        sector.status === 'underweight' ? '#3b82f6' :
                         '#22c55e'
                       }`
                     }}>
@@ -656,21 +661,32 @@ const Recommendations = () => {
                           <Typography variant="h6" fontWeight="bold">
                             {sector.sector}
                           </Typography>
-                          <Chip 
-                            label={`${sector.percentage}%`}
-                            size="small"
-                            color={
-                              sector.status === 'overweight' ? 'error' :
-                              sector.status === 'underweight' ? 'warning' :
-                              'success'
-                            }
-                          />
+                          <Box>
+                            <Chip 
+                              label={`${sector.num_stocks}/${sector.max_stocks_allowed || 2} stocks`}
+                              size="small"
+                              color={
+                                sector.status === 'overweight' ? 'error' :
+                                sector.status === 'moderate_overweight' ? 'warning' :
+                                'success'
+                              }
+                              sx={{ mr: 1 }}
+                            />
+                            <Chip 
+                              label={`${sector.percentage.toFixed(2)}%`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          </Box>
                         </Box>
                         <Typography variant="body2" color="text.secondary" gutterBottom>
-                          {formatCurrency(sector.invested_amount)} • {sector.num_stocks} {sector.num_stocks === 1 ? 'stock' : 'stocks'}
+                          {formatCurrency(sector.current_value || 0)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                          Stocks: {sector.stocks.join(', ')}
                         </Typography>
                         <Divider sx={{ my: 1 }} />
-                        <Typography variant="body2">
+                        <Typography variant="body2" fontWeight={sector.status === 'overweight' ? 'bold' : 'normal'}>
                           {sector.recommendation}
                         </Typography>
                       </CardContent>
@@ -682,54 +698,87 @@ const Recommendations = () => {
           </Accordion>
         )}
 
-        {/* Market Cap Rebalancing */}
+        {/* Market Cap Rebalancing - Enhanced with Multiple Limits */}
         {rebalancing.market_cap_rebalancing && rebalancing.market_cap_rebalancing.length > 0 && (
           <Accordion sx={{ borderRadius: 2 }}>
             <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: 'rgba(167, 139, 250, 0.1)' }}>
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 <InfoOutlinedIcon sx={{ color: '#a78bfa', mr: 1 }} />
                 <Typography fontWeight="bold">
-                  Market Cap Rebalancing Insights
+                  Market Cap Rebalancing (Multi-Limit Analysis)
                 </Typography>
               </Box>
             </AccordionSummary>
             <AccordionDetails>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <strong>Three-Tier Limit System:</strong><br/>
+                1️⃣ <strong>Per-Stock %:</strong> Max % per individual stock<br/>
+                2️⃣ <strong>Stock Count:</strong> Max number of stocks in category<br/>
+                3️⃣ <strong>Portfolio %:</strong> Max total % of portfolio in category
+              </Alert>
+              
+              {/* Total Portfolio Stock Count Warning */}
+              {rebalancing.total_stocks > rebalancing.max_total_stocks && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  <strong>⚠️ Total Stocks Limit Exceeded:</strong> {rebalancing.total_stocks}/{rebalancing.max_total_stocks} stocks - Consider reducing overall holdings
+                </Alert>
+              )}
+              
               <Grid container spacing={2}>
                 {rebalancing.market_cap_rebalancing.map((mc, idx) => (
-                  <Grid item xs={12} md={6} key={idx}>
+                  <Grid item xs={12} key={idx}>
                     <Card sx={{ 
                       bgcolor: mc.status === 'overweight' ? 'rgba(248, 113, 113, 0.05)' :
-                                mc.status === 'underweight' ? 'rgba(251, 191, 36, 0.05)' :
+                                mc.status === 'moderate_overweight' ? 'rgba(251, 191, 36, 0.05)' :
+                                mc.status === 'underweight' ? 'rgba(147, 197, 253, 0.05)' :
                                 'rgba(74, 222, 128, 0.05)',
                       borderLeft: `4px solid ${
                         mc.status === 'overweight' ? '#ef4444' :
-                        mc.status === 'underweight' ? '#eab308' :
+                        mc.status === 'moderate_overweight' ? '#eab308' :
+                        mc.status === 'underweight' ? '#3b82f6' :
                         '#22c55e'
                       }`
                     }}>
                       <CardContent>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                           <Typography variant="h6" fontWeight="bold">
                             {mc.market_cap}
                           </Typography>
-                          <Chip 
-                            label={`${mc.percentage}%`}
-                            size="small"
-                            color={
-                              mc.status === 'overweight' ? 'error' :
-                              mc.status === 'underweight' ? 'warning' :
-                              'success'
-                            }
-                          />
+                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            <Chip 
+                              label={`${mc.num_stocks}/${mc.stock_count_limit || 'N/A'} stocks`}
+                              size="small"
+                              color={mc.status === 'overweight' ? 'error' : 'default'}
+                              variant="outlined"
+                            />
+                            <Chip 
+                              label={`${mc.percentage.toFixed(1)}%/${mc.portfolio_pct_limit || 'N/A'}% portfolio`}
+                              size="small"
+                              color={mc.status === 'overweight' ? 'error' : mc.status === 'moderate_overweight' ? 'warning' : 'success'}
+                            />
+                            <Chip 
+                              label={`Per-stock: ${mc.per_stock_limit || 'N/A'}%`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          </Box>
                         </Box>
+                        
                         <Typography variant="body2" color="text.secondary" gutterBottom>
-                          {formatCurrency(mc.invested_amount)} • {mc.num_stocks} {mc.num_stocks === 1 ? 'stock' : 'stocks'}
+                          {formatCurrency(mc.current_value || 0)}
                         </Typography>
+                        
                         <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                          Target Range: {mc.target_range}
+                          Stocks: {mc.stocks.join(', ')}
                         </Typography>
-                        <Divider sx={{ my: 1 }} />
-                        <Typography variant="body2">
+                        
+                        <Divider sx={{ my: 1.5 }} />
+                        
+                        <Typography 
+                          variant="body2" 
+                          fontWeight={mc.status === 'overweight' ? 'bold' : 'normal'}
+                          color={mc.status === 'overweight' ? 'error.main' : 'text.primary'}
+                        >
                           {mc.recommendation}
                         </Typography>
                       </CardContent>
@@ -739,6 +788,90 @@ const Recommendations = () => {
               </Grid>
             </AccordionDetails>
           </Accordion>
+        )}
+
+        {/* Parent Sector Analysis (with 2-stock limit) */}
+        {rebalancing.parent_sector_analysis && rebalancing.parent_sector_analysis.length > 0 && (
+          <Accordion sx={{ mb: 2, borderRadius: 2 }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: 'rgba(236, 72, 153, 0.1)' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <InfoOutlinedIcon sx={{ color: '#ec4899', mr: 1 }} />
+                <Typography fontWeight="bold">
+                  Parent Sector Analysis (Max 2 Stocks/Sector)
+                </Typography>
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Strategy: Maximum 2 stocks per parent sector to avoid overconcentration
+              </Alert>
+              <Grid container spacing={2}>
+                {rebalancing.parent_sector_analysis.map((ps, idx) => (
+                  <Grid item xs={12} md={6} key={idx}>
+                    <Card sx={{ 
+                      bgcolor: ps.status === 'overconcentrated' ? 'rgba(248, 113, 113, 0.05)' :
+                                ps.status === 'at_limit' ? 'rgba(251, 191, 36, 0.05)' :
+                                'rgba(74, 222, 128, 0.05)',
+                      borderLeft: `4px solid ${
+                        ps.status === 'overconcentrated' ? '#ef4444' :
+                        ps.status === 'at_limit' ? '#eab308' :
+                        '#22c55e'
+                      }`
+                    }}>
+                      <CardContent>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                          <Typography variant="h6" fontWeight="bold">
+                            {ps.parent_sector}
+                          </Typography>
+                          <Box>
+                            <Chip 
+                              label={`${ps.num_stocks}/${ps.stock_limit} stocks`}
+                              size="small"
+                              color={
+                                ps.status === 'overconcentrated' ? 'error' :
+                                ps.status === 'at_limit' ? 'warning' :
+                                'success'
+                              }
+                              sx={{ mr: 1 }}
+                            />
+                            <Chip 
+                              label={`${ps.percentage.toFixed(2)}%`}
+                              size="small"
+                              variant="outlined"
+                            />
+                          </Box>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary" gutterBottom>
+                          {formatCurrency(ps.current_value || 0)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                          Stocks: {ps.stocks.join(', ')}
+                        </Typography>
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="body2" fontWeight={ps.status === 'overconcentrated' ? 'bold' : 'normal'}>
+                          {ps.recommendation}
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </AccordionDetails>
+          </Accordion>
+        )}
+
+        {/* Parent Sector Warnings */}
+        {rebalancing.parent_sector_warnings && rebalancing.parent_sector_warnings.length > 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+              ⚠️ Parent Sector Limit Exceeded
+            </Typography>
+            {rebalancing.parent_sector_warnings.map((warning, idx) => (
+              <Typography key={idx} variant="body2" sx={{ mt: 1 }}>
+                <strong>{warning.parent_sector}:</strong> {warning.stock_count} stocks ({warning.stocks.join(', ')}) - {warning.recommendation}
+              </Typography>
+            ))}
+          </Alert>
         )}
 
         {/* No Rebalancing Needed */}
