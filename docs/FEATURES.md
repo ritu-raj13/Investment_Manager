@@ -949,10 +949,42 @@ Near Average Zone: avg_max × 1.03 / avg_min × 0.97
 - Transaction history preservation
 - Price update tracking
 
-### Backup & Export
+### Automatic Daily Backup
+**NEW (December 2025)**: Automated database backup system
+
+**Features:**
+- ✅ **Daily auto-backup** - Runs automatically on server startup
+- ✅ **Smart detection** - Only creates backup if current date > last backup date
+- ✅ **Keep last 5 backups** - Automatically deletes older backups
+- ✅ **Zero configuration** - Works out of the box
+- ✅ **Startup logs** - Shows backup status in console
+
+**How It Works:**
+```
+Server Startup:
+[AUTO-BACKUP] Checking backup status...
+[AUTO-BACKUP] Last backup: Nov 29, 2025
+[AUTO-BACKUP] Today: Dec 6, 2025
+[AUTO-BACKUP] Creating new backup...
+[BACKUP] ✓ Created: investment_manager_backup_20251206_212516.db
+[AUTO-BACKUP] ✓ Complete! Total backups: 2
+```
+
+**Storage:**
+- Location: `backend/backups/`
+- Format: `investment_manager_backup_YYYYMMDD_HHMMSS.db`
+- Retention: Last 5 backups only
+
+**Benefits:**
+- **No data loss** - Daily protection against accidental changes
+- **Space efficient** - Auto-cleanup keeps storage minimal
+- **Transparent** - See backup status in startup logs
+- **Disaster recovery** - Easy restore from recent backup
+
+### Manual Backup & Export
 - CSV export functionality
 - Transaction history export
-- Database backup tools included
+- Manual backup tools included (see `utils/backup.py`)
 
 ---
 
@@ -1459,6 +1491,16 @@ Expandable accordions for:
 ---
 
 ## Recent Improvements
+
+### December 2025: Data Protection & RAG Knowledge Base
+
+- ✅ **Automatic daily backups** with smart date detection
+- ✅ **Auto-cleanup** - keeps only last 5 backups
+- ✅ **RAG Chatbot** for swing trading notes (see [KNOWLEDGE_BASE_README.md](../KNOWLEDGE_BASE_README.md))
+- ✅ **PDF upload & indexing** with ChromaDB vector storage
+- ✅ **LLM-powered organization** for scanned trading notes
+- ✅ **Content synthesis** with local Ollama models
+- ✅ **Book export** (HTML/PDF) for organized notes
 
 ### November 2025: Swing Trading Enhancement
 

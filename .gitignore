@@ -34,10 +34,17 @@ ENV/
 
 # Application Data (generated at runtime)
 backend/exports/
-backend/backups/
+backend/backups/*.db
+backend/backups/*.sqlite*
+!backend/backups/README.md
 exports/
 backups/
 data_export_*.json
+
+# Knowledge Base / RAG Data (uploaded PDFs, extracted images, vector DB)
+backend/uploads/
+backend/chroma_db/
+backend/chroma_db_backup*/
 
 # Flask
 instance/

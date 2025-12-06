@@ -1,0 +1,58 @@
+# Development Dependencies (SQLite, no PostgreSQL)
+# Use this for local development: pip install -r requirements-dev.txt
+
+# Core Flask
+Flask==3.0.0
+Flask-CORS==4.0.0
+Flask-SQLAlchemy==3.1.1
+
+# Authentication & Security
+Flask-Login==0.6.3
+Werkzeug==3.0.3
+
+# Rate Limiting
+Flask-Limiter==3.5.0
+
+# Production Server (not needed for local dev, may not work on Windows)
+# gunicorn==21.2.0
+
+# Database
+SQLAlchemy==2.0.23
+# Note: psycopg2-binary removed for local dev (only needed for PostgreSQL in production)
+
+# Data Export/Import
+pandas>=2.2.0  # Use latest version with Python 3.13 wheels
+
+# Price Fetching
+yfinance==0.2.32
+requests==2.31.0
+beautifulsoup4==4.12.2
+lxml==5.1.0
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# PDF Processing & Knowledge Base
+pdfplumber==0.11.0
+PyPDF2==3.0.1
+
+# Vector Database & Embeddings
+chromadb>=0.5.0  # Use latest version with Python 3.13 support
+sentence-transformers>=2.3.1
+
+# LLM Integration
+langchain>=0.1.0
+ollama>=0.1.6
+
+# Additional NLP
+nltk==3.8.1
+
+# Markdown Processing
+markdown>=3.5.0
+
+# Image Processing
+Pillow>=10.0.0
+
+# PDF Export (optional - install one)
+# weasyprint>=60.0  # Full HTML/CSS to PDF (requires GTK on Windows)
+# reportlab>=4.0.0  # Simpler PDF generation

@@ -38,7 +38,7 @@ from .net_worth import (
     get_liquidity_analysis,
     calculate_unified_portfolio_xirr  # Phase 3
 )
-from .backup import DatabaseBackup, create_startup_backup, create_pre_migration_backup
+from .backup import DatabaseBackup, auto_backup_on_startup, create_pre_migration_backup
 
 __all__ = [
     'User',
@@ -77,7 +77,7 @@ __all__ = [
     'calculate_portfolio_diversification_score',
     'get_liquidity_analysis',
     'DatabaseBackup',
-    'create_startup_backup',
+    'auto_backup_on_startup',
     'create_pre_migration_backup',
 ]
 

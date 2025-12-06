@@ -30,6 +30,7 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import LogoutIcon from '@mui/icons-material/Logout';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import TimelineIcon from '@mui/icons-material/Timeline';
+import SchoolIcon from '@mui/icons-material/School';
 import StockTracking from './components/StockTracking';
 import Portfolio from './components/Portfolio';
 import Analytics from './components/Analytics';
@@ -44,6 +45,7 @@ import FixedIncome from './components/FixedIncome';
 import Accounts from './components/Accounts';
 import Reports from './components/Reports';
 import Equity from './components/Equity';
+import KnowledgeBase from './components/KnowledgeBase';
 import { authAPI } from './services/api';
 
 const theme = createTheme({
@@ -269,6 +271,11 @@ function App() {
               iconPosition="start"
             />
             <Tab 
+              icon={<SchoolIcon />} 
+              label="Trading Notes"
+              iconPosition="start"
+            />
+            <Tab 
               icon={<SettingsIcon />} 
               label="Settings"
               iconPosition="start"
@@ -285,7 +292,8 @@ function App() {
           {currentTab === 5 && <IncomeExpenses />}
           {currentTab === 6 && <Reports />}
           {currentTab === 7 && <Health />}
-          {currentTab === 8 && <Settings />}
+          {currentTab === 8 && <KnowledgeBase />}
+          {currentTab === 9 && <Settings />}
         </Container>
 
         {/* Back to Top Button */}
