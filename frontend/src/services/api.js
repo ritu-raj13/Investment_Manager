@@ -234,5 +234,97 @@ export const dataAPI = {
   },
 };
 
+// Knowledge Base / Trading Notes Chatbot API
+export const knowledgeAPI = {
+  // PDF Upload & Management
+  uploadPDF: (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/knowledge/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }).then(res => res.data);
+  },
+  
+  uploadMultiplePDFs: (files) => {
+    const formData = new FormData();
+    files.forEach(file => {
+      formData.append('files', file);
+    });
+    return api.post('/knowledge/upload-multiple', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }).then(res => res.data);
+  },
+  
+  getDocuments: () => api.get('/knowledge/documents').then(res => res.data.documents || res.data),
+  
+  deleteDocument: (id) => api.delete(`/knowledge/documents/${id}`).then(res => res.data),
+  
+  // Content Organization
+  getOrganizationProposals: (documentId = null) => {
+    const params = documentId ? { document_id: documentId } : {};
+    return api.get('/knowledge/proposals', { params }).then(res => res.data.proposals || res.data);
+  },
+  
+  generateProposals: (useLLM = true) => api.post('/knowledge/proposals/generate', { use_llm: useLLM }).then(res => res.data),
+  
+  approveOrganization: (proposalId, edits = null) => {
+    return api.post(`/knowledge/proposals/${proposalId}/approve`, edits || {}).then(res => res.data);
+  },
+  
+  approveAllProposals: (bookId) => {
+    return api.post('/knowledge/proposals/approve-all', { book_id: bookId }).then(res => res.data);
+  },
+  
+  rejectOrganization: (proposalId) => {
+    return api.post(`/knowledge/proposals/${proposalId}/reject`).then(res => res.data);
+  },
+  
+  // Chatbot
+  sendChatMessage: (query) => {
+    return api.post('/knowledge/chat', { query }).then(res => res.data);
+  },
+  
+  getChatHistory: (limit = 50) => {
+    return api.get('/knowledge/chat/history', { params: { limit } }).then(res => res.data);
+  },
+  
+  clearChatHistory: () => {
+    return api.delete('/knowledge/chat/history').then(res => res.data);
+  },
+  
+  // Book Management
+  getBooks: () => api.get('/knowledge/books').then(res => res.data),
+  createBook: (data) => api.post('/knowledge/books', data).then(res => res.data),
+  getBook: (bookId) => api.get(`/knowledge/books/${bookId}`).then(res => res.data),
+  updateBook: (bookId, data) => api.put(`/knowledge/books/${bookId}`, data).then(res => res.data),
+  deleteBook: (bookId) => api.delete(`/knowledge/books/${bookId}`).then(res => res.data),
+  reorganizeBook: (bookId) => api.post(`/knowledge/books/${bookId}/reorganize`).then(res => res.data),
+  synthesizeBookContent: (bookId) => api.post(`/knowledge/books/${bookId}/synthesize`).then(res => res.data),
+  exportBook: async (bookId, format) => {
+    const response = await api.get(`/knowledge/books/${bookId}/export`, {
+      params: { format },
+      responseType: 'blob'
+    });
+    return response.data;
+  },
+  
+  // Section Management
+  createSection: (data) => api.post('/knowledge/sections', data).then(res => res.data),
+  updateSection: (sectionId, data) => api.put(`/knowledge/sections/${sectionId}`, data).then(res => res.data),
+  deleteSection: (sectionId) => api.delete(`/knowledge/sections/${sectionId}`).then(res => res.data),
+  reorderSections: (sectionIds) => api.post('/knowledge/sections/reorder', { section_ids: sectionIds }).then(res => res.data),
+  addSectionImage: (sectionId, imageData) => api.post(`/knowledge/sections/${sectionId}/images`, imageData).then(res => res.data),
+  
+  // Management
+  reindex: () => api.post('/knowledge/reindex').then(res => res.data),
+  
+  getSections: (documentId = null) => {
+    const params = documentId ? { document_id: documentId } : {};
+    return api.get('/knowledge/sections', { params }).then(res => res.data);
+  },
+  
+  getStats: () => api.get('/knowledge/stats').then(res => res.data.stats || res.data),
+};
+
 export default api;
 

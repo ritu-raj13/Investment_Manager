@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import yfinance as yf
 from typing import List, Dict
 import os
+import json
 import pandas as pd
 import shutil
 from werkzeug.utils import secure_filename
@@ -30,7 +31,7 @@ from utils import (
     format_refresh_response,
     clean_symbol,
     calculate_portfolio_xirr,
-    create_startup_backup
+    auto_backup_on_startup
 )
 from services import get_nse_price, get_scraped_price, get_stock_details
 from services.mf_api import fetch_mf_nav_by_name, fetch_mf_nav, get_mf_scheme_details
@@ -651,6 +652,189 @@ class GlobalSettings(db.Model):
             'monthly_expense_target': self.monthly_expense_target,
             'currency': self.currency,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class KnowledgeDocument(db.Model):
+    __tablename__ = 'knowledge_documents'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), nullable=False)
+    original_filename = db.Column(db.String(255), nullable=False)
+    file_path = db.Column(db.String(500), nullable=False)
+    file_size = db.Column(db.Integer)  # Size in bytes
+    total_pages = db.Column(db.Integer)
+    version = db.Column(db.Integer, default=1)
+    status = db.Column(db.String(50), default='processing')  # processing, organized, ready
+    upload_date = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    last_updated = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    notes = db.Column(db.Text)
+    
+    # Relationships
+    sections = db.relationship('KnowledgeSection', backref='document', lazy=True, cascade='all, delete-orphan')
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'filename': self.filename,
+            'original_filename': self.original_filename,
+            'file_size': self.file_size,
+            'total_pages': self.total_pages,
+            'version': self.version,
+            'status': self.status,
+            'upload_date': self.upload_date.isoformat() if self.upload_date else None,
+            'last_updated': self.last_updated.isoformat() if self.last_updated else None,
+            'notes': self.notes,
+            'sections_count': len(self.sections) if self.sections else 0
+        }
+
+
+class KnowledgeBook(db.Model):
+    __tablename__ = 'knowledge_books'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    
+    # Relationship
+    sections = db.relationship('KnowledgeSection', backref='book', lazy=True, cascade='all, delete-orphan')
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'title': self.title,
+            'description': self.description,
+            'created_at': self.created_at.isoformat(),
+            'updated_at': self.updated_at.isoformat(),
+            'section_count': len(self.sections) if self.sections else 0
+        }
+
+
+class KnowledgeSection(db.Model):
+    __tablename__ = 'knowledge_sections'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(db.Integer, db.ForeignKey('knowledge_documents.id'), nullable=True)
+    book_id = db.Column(db.Integer, db.ForeignKey('knowledge_books.id'), nullable=True)
+    parent_section_id = db.Column(db.Integer, db.ForeignKey('knowledge_sections.id'), nullable=True)
+    
+    title = db.Column(db.String(255), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    content_markdown = db.Column(db.Text)  # Markdown version for editing
+    page_numbers = db.Column(db.String(100))  # e.g., "5,12,23" for pages where this topic appears
+    section_order = db.Column(db.Integer, default=0)
+    section_type = db.Column(db.String(50), default='section')  # 'chapter', 'section', 'subsection'
+    section_metadata = db.Column(db.Text)  # JSON string for additional metadata
+    
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    
+    # Relationships
+    images = db.relationship('KnowledgeSectionImage', backref='section', lazy=True, cascade='all, delete-orphan')
+    subsections = db.relationship('KnowledgeSection', backref=db.backref('parent_section', remote_side=[id]), lazy=True)
+    
+    def to_dict(self, include_images=False, include_subsections=False):
+        result = {
+            'id': self.id,
+            'document_id': self.document_id,
+            'book_id': self.book_id,
+            'parent_section_id': self.parent_section_id,
+            'title': self.title,
+            'content': self.content,
+            'content_markdown': self.content_markdown,
+            'page_numbers': self.page_numbers,
+            'section_order': self.section_order,
+            'section_type': self.section_type,
+            'metadata': self.section_metadata,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+        
+        if include_images and self.images:
+            result['images'] = [img.to_dict() for img in self.images]
+        
+        if include_subsections and self.subsections:
+            result['subsections'] = [sub.to_dict() for sub in self.subsections]
+        
+        return result
+
+
+class KnowledgeSectionImage(db.Model):
+    __tablename__ = 'knowledge_section_images'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    section_id = db.Column(db.Integer, db.ForeignKey('knowledge_sections.id'), nullable=False)
+    image_path = db.Column(db.String(500), nullable=False)
+    caption = db.Column(db.String(500))
+    position = db.Column(db.Integer, default=0)  # Order within section
+    source_page = db.Column(db.Integer)  # Original PDF page number
+    width = db.Column(db.Integer)
+    height = db.Column(db.Integer)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'section_id': self.section_id,
+            'image_path': self.image_path,
+            'caption': self.caption,
+            'position': self.position,
+            'source_page': self.source_page,
+            'width': self.width,
+            'height': self.height,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class ContentOrganizationProposal(db.Model):
+    __tablename__ = 'content_organization_proposals'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(db.Integer, db.ForeignKey('knowledge_documents.id'), nullable=False)
+    proposal_type = db.Column(db.String(50), nullable=False)  # 'merge', 'split', 'reorganize'
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    affected_pages = db.Column(db.String(200))  # Pages affected by this proposal
+    proposed_content = db.Column(db.Text)  # JSON string with the proposed changes
+    status = db.Column(db.String(50), default='pending')  # pending, approved, rejected
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    reviewed_at = db.Column(db.DateTime)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'document_id': self.document_id,
+            'proposal_type': self.proposal_type,
+            'title': self.title,
+            'description': self.description,
+            'affected_pages': self.affected_pages,
+            'proposed_content': self.proposed_content,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'reviewed_at': self.reviewed_at.isoformat() if self.reviewed_at else None
+        }
+
+
+class ChatHistory(db.Model):
+    __tablename__ = 'chat_history'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    query = db.Column(db.Text, nullable=False)
+    response = db.Column(db.Text, nullable=False)
+    sources = db.Column(db.Text)  # JSON string with source references
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    response_time = db.Column(db.Float)  # Time taken to generate response in seconds
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'query': self.query,
+            'response': self.response,
+            'sources': self.sources,
+            'timestamp': self.timestamp.isoformat() if self.timestamp else None,
+            'response_time': self.response_time
         }
 
 
@@ -1309,15 +1493,26 @@ def create_transaction():
     buy_step = data.get('buy_step')
     sell_step = data.get('sell_step')
     
-    if buy_step is not None:
-        buy_step = int(buy_step)
-        if buy_step < 1 or buy_step > 3:
-            return jsonify({'error': 'buy_step must be between 1 and 3'}), 400
+    # Handle empty strings and None
+    if buy_step is not None and buy_step != '':
+        try:
+            buy_step = int(buy_step)
+            if buy_step < 1 or buy_step > 3:
+                return jsonify({'error': 'buy_step must be between 1 and 3'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'error': 'buy_step must be a valid number'}), 400
+    else:
+        buy_step = None
     
-    if sell_step is not None:
-        sell_step = int(sell_step)
-        if sell_step < 1 or sell_step > 2:
-            return jsonify({'error': 'sell_step must be between 1 and 2'}), 400
+    if sell_step is not None and sell_step != '':
+        try:
+            sell_step = int(sell_step)
+            if sell_step < 1 or sell_step > 2:
+                return jsonify({'error': 'sell_step must be between 1 and 2'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'error': 'sell_step must be a valid number'}), 400
+    else:
+        sell_step = None
     
     # Calculate average price after this transaction (for BUY transactions)
     avg_price_after = None
@@ -1407,18 +1602,28 @@ def update_transaction(transaction_id):
     # Update buy/sell steps if provided
     if 'buy_step' in data:
         buy_step = data['buy_step']
-        if buy_step is not None:
-            buy_step = int(buy_step)
-            if buy_step < 1 or buy_step > 3:
-                return jsonify({'error': 'buy_step must be between 1 and 3'}), 400
+        if buy_step is not None and buy_step != '':
+            try:
+                buy_step = int(buy_step)
+                if buy_step < 1 or buy_step > 3:
+                    return jsonify({'error': 'buy_step must be between 1 and 3'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'buy_step must be a valid number'}), 400
+        else:
+            buy_step = None
         transaction.buy_step = buy_step
     
     if 'sell_step' in data:
         sell_step = data['sell_step']
-        if sell_step is not None:
-            sell_step = int(sell_step)
-            if sell_step < 1 or sell_step > 2:
-                return jsonify({'error': 'sell_step must be between 1 and 2'}), 400
+        if sell_step is not None and sell_step != '':
+            try:
+                sell_step = int(sell_step)
+                if sell_step < 1 or sell_step > 2:
+                    return jsonify({'error': 'sell_step must be between 1 and 2'}), 400
+            except (ValueError, TypeError):
+                return jsonify({'error': 'sell_step must be a valid number'}), 400
+        else:
+            sell_step = None
         transaction.sell_step = sell_step
     
     transaction.transaction_date = datetime.fromisoformat(data['transaction_date']) if 'transaction_date' in data else transaction.transaction_date
@@ -1624,11 +1829,6 @@ def update_portfolio_settings():
 # Initialize database tables on startup
 with app.app_context():
     db.create_all()
-    # Create automatic backup on startup
-    try:
-        create_startup_backup()
-    except Exception as e:
-        print(f"[WARN] Could not create startup backup: {e}")
 
 
 # ============================================================================
@@ -4325,8 +4525,1351 @@ def update_global_settings():
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================================================
+# Knowledge Base / Trading Notes Chatbot Routes
+# ============================================================================
+
+def _process_single_pdf(file, kb_service, skip_organization=False):
+    """
+    Process a single PDF file
+    
+    Args:
+        file: File object from request
+        kb_service: Knowledge base service instance
+        skip_organization: If True, skip content organization (faster upload)
+        
+    Returns:
+        Dict with processing results or error
+    """
+    filename = file.filename
+    try:
+        print(f"[INFO] Starting processing: {filename}")
+        
+        # Create document record
+        doc = KnowledgeDocument(
+            filename=secure_filename(filename),
+            original_filename=filename,
+            file_path='',
+            status='uploading'
+        )
+        db.session.add(doc)
+        db.session.commit()
+        
+        print(f"[INFO] Saving file: {filename}")
+        # Save file
+        try:
+            file.seek(0)
+        except:
+            pass
+        file_path = kb_service.save_uploaded_file(file, doc.id)
+        
+        # Update document with file info
+        doc.file_path = file_path
+        file_size = os.path.getsize(file_path)
+        doc.file_size = file_size
+        doc.status = 'extracting'
+        db.session.commit()
+        
+        print(f"[INFO] Extracting text from: {filename}")
+        # Extract text, images and metadata
+        full_text, total_pages, pages_data = kb_service.extract_text_from_pdf(file_path, doc.id)
+        doc.total_pages = total_pages
+        doc.status = 'indexing'
+        db.session.commit()
+        
+        print(f"[INFO] Chunking text: {filename}")
+        # Chunk text
+        chunks = kb_service.chunk_text(full_text, pages_data)
+        
+        print(f"[INFO] Adding to vector store: {filename}")
+        # Add to vector store
+        result = kb_service.add_to_vector_store(chunks, doc.id, doc.filename)
+        
+        if result['status'] != 'success':
+            doc.status = 'error'
+            db.session.commit()
+            return {
+                'status': 'error',
+                'filename': filename,
+                'document_id': doc.id,
+                'message': result.get('message', 'Failed to index PDF')
+            }
+        
+        # Update status to indexed
+        doc.status = 'indexed'
+        db.session.commit()
+        
+        print(f"[SUCCESS] Completed processing: {filename}")
+        
+        return {
+            'status': 'success',
+            'filename': filename,
+            'document_id': doc.id,
+            'total_pages': total_pages,
+            'chunks_processed': result['chunks_added']
+        }
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[ERROR] Failed processing {filename}: {error_msg}")
+        db.session.rollback()
+        return {
+            'status': 'error',
+            'filename': filename,
+            'message': error_msg
+        }
+
+
+@app.route('/api/knowledge/upload', methods=['POST'])
+@api_login_required
+def upload_knowledge_pdf():
+    """Upload single PDF for knowledge base"""
+    try:
+        from services.knowledge_base import get_knowledge_base_service
+        from services.content_organizer import get_content_organizer
+        
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not file.filename.lower().endswith('.pdf'):
+            return jsonify({'error': 'Only PDF files are allowed'}), 400
+        
+        kb_service = get_knowledge_base_service()
+        
+        result = _process_single_pdf(file, kb_service, skip_organization=False)
+        
+        if result['status'] == 'error':
+            return jsonify({'error': result['message']}), 500
+        
+        return jsonify(result), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/upload-multiple', methods=['POST'])
+@api_login_required
+def upload_multiple_pdfs():
+    """Upload multiple PDFs and process them sequentially"""
+    try:
+        from services.knowledge_base import get_knowledge_base_service
+        from services.content_organizer import get_content_organizer
+        
+        if 'files' not in request.files:
+            return jsonify({'error': 'No files provided'}), 400
+        
+        files = request.files.getlist('files')
+        
+        if not files or len(files) == 0:
+            return jsonify({'error': 'No files selected'}), 400
+        
+        # Validate all files are PDFs
+        invalid_files = [f.filename for f in files if not f.filename.lower().endswith('.pdf')]
+        if invalid_files:
+            return jsonify({
+                'error': f'Only PDF files are allowed. Invalid files: {", ".join(invalid_files)}'
+            }), 400
+        
+        kb_service = get_knowledge_base_service()
+        
+        results = {
+            'total_files': len(files),
+            'successful': 0,
+            'failed': 0,
+            'results': []
+        }
+        
+        print(f"\n[INFO] ========== Processing {len(files)} PDFs ==========")
+        
+        # Process each file sequentially (SKIP organization for now)
+        for idx, file in enumerate(files, 1):
+            if file.filename == '':
+                continue
+            
+            print(f"\n[INFO] Processing file {idx}/{len(files)}: {file.filename}")
+            
+            try:
+                # Reset file pointer before processing
+                file.seek(0)
+            except:
+                pass
+            
+            result = _process_single_pdf(file, kb_service, skip_organization=True)
+            results['results'].append(result)
+            
+            if result['status'] == 'success':
+                results['successful'] += 1
+                print(f"[SUCCESS] {idx}/{len(files)} completed: {file.filename}")
+            else:
+                results['failed'] += 1
+                print(f"[ERROR] {idx}/{len(files)} failed: {file.filename} - {result.get('message', 'Unknown error')}")
+        
+        print(f"\n[INFO] ========== Upload Complete: {results['successful']} success, {results['failed']} failed ==========")
+        
+        # Overall status
+        if results['successful'] == len(files):
+            status_code = 201
+            results['status'] = 'success'
+            results['message'] = f'All {len(files)} PDFs processed successfully'
+        elif results['successful'] > 0:
+            status_code = 207  # Multi-Status
+            results['status'] = 'partial'
+            results['message'] = f'{results["successful"]} of {len(files)} PDFs processed successfully'
+        else:
+            status_code = 500
+            results['status'] = 'error'
+            results['message'] = 'All PDF processing failed'
+        
+        return jsonify(results), status_code
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/documents', methods=['GET'])
+@api_login_required
+def get_knowledge_documents():
+    """Get all uploaded knowledge documents"""
+    try:
+        documents = KnowledgeDocument.query.order_by(KnowledgeDocument.upload_date.desc()).all()
+        return jsonify({
+            'status': 'success',
+            'documents': [doc.to_dict() for doc in documents],
+            'total': len(documents)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/documents/<int:doc_id>', methods=['DELETE'])
+@api_login_required
+def delete_knowledge_document(doc_id):
+    """Delete a knowledge document"""
+    try:
+        from services.knowledge_base import get_knowledge_base_service
+        
+        doc = KnowledgeDocument.query.get_or_404(doc_id)
+        
+        # Delete from vector store
+        kb_service = get_knowledge_base_service()
+        kb_service.delete_document_from_store(doc_id)
+        
+        # Delete file
+        if os.path.exists(doc.file_path):
+            os.remove(doc.file_path)
+        
+        # Delete from database (cascade will delete sections and proposals)
+        db.session.delete(doc)
+        db.session.commit()
+        
+        return jsonify({'status': 'success', 'message': 'Document deleted'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/proposals', methods=['GET'])
+@api_login_required
+def get_organization_proposals():
+    """Get pending organization proposals"""
+    try:
+        document_id = request.args.get('document_id', type=int)
+        
+        query = ContentOrganizationProposal.query
+        if document_id:
+            query = query.filter_by(document_id=document_id)
+        
+        proposals = query.filter_by(status='pending').order_by(
+            ContentOrganizationProposal.created_at.desc()
+        ).all()
+        
+        return jsonify([p.to_dict() for p in proposals])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/proposals/generate', methods=['POST'])
+@api_login_required
+def generate_proposals_for_all():
+    """Generate organization proposals for new/unorganized documents only"""
+    try:
+        from services.content_organizer import get_content_organizer
+        from services.knowledge_base import get_knowledge_base_service
+        
+        print("\n[INFO] ========== Starting Proposal Generation ==========")
+        
+        kb_service = get_knowledge_base_service()
+        organizer = get_content_organizer()
+        
+        # Get ONLY indexed documents (skip already organized ones)
+        docs = KnowledgeDocument.query.filter_by(status='indexed').all()
+        
+        if not docs:
+            print("[INFO] No new documents to organize (all already organized)")
+            return jsonify({
+                'status': 'success',
+                'message': 'No new documents to organize',
+                'processed': 0
+            })
+        
+        if not docs:
+            print("[INFO] No indexed documents found")
+            return jsonify({
+                'status': 'success',
+                'message': 'No documents need proposal generation',
+                'processed': 0
+            })
+        
+        print(f"[INFO] Found {len(docs)} indexed documents")
+        
+        total_proposals = 0
+        processed_docs = 0
+        errors = []
+        
+        for idx, doc in enumerate(docs, 1):
+            try:
+                print(f"\n[{idx}/{len(docs)}] Processing: {doc.filename}")
+                
+                # Extract pages for analysis
+                _, _, pages_data = kb_service.extract_text_from_pdf(doc.file_path, doc.id)
+                print(f"    Extracted {len(pages_data)} pages")
+                
+                # Analyze content with LLM intelligence
+                use_llm = request.json.get('use_llm', True) if request.json else True
+                analysis = organizer.analyze_content_structure(pages_data, doc.filename, use_llm=use_llm)
+                
+                # Save proposals
+                if analysis['status'] == 'success':
+                    proposals_count = 0
+                    for proposal in analysis.get('proposals', []):
+                        org_proposal = ContentOrganizationProposal(
+                            document_id=doc.id,
+                            proposal_type=proposal.get('type', 'section'),
+                            title=proposal.get('title', ''),
+                            description=proposal.get('description', ''),
+                            affected_pages=proposal.get('affected_pages', ''),
+                            proposed_content=json.dumps(proposal),
+                            status='pending'
+                        )
+                        db.session.add(org_proposal)
+                        proposals_count += 1
+                        total_proposals += 1
+                    
+                    doc.status = 'organized'
+                    processed_docs += 1
+                    db.session.commit()
+                    print(f"    ✓ Generated {proposals_count} proposal(s)")
+                else:
+                    errors.append(f"{doc.filename}: {analysis.get('message', 'Unknown error')}")
+                
+            except Exception as doc_error:
+                error_msg = f"{doc.filename}: {str(doc_error)}"
+                print(f"    ✗ Error: {str(doc_error)}")
+                errors.append(error_msg)
+                continue
+        
+        print(f"\n[INFO] ========== Proposal Generation Complete ==========")
+        print(f"[INFO] Processed: {processed_docs}/{len(docs)} documents")
+        print(f"[INFO] Total proposals: {total_proposals}")
+        if errors:
+            print(f"[WARN] Errors: {len(errors)}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Generated {total_proposals} proposals from {processed_docs} documents',
+            'proposals_generated': total_proposals,
+            'documents_processed': processed_docs,
+            'errors': errors if errors else None
+        })
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"\n[ERROR] Proposal generation failed: {error_msg}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({'error': error_msg}), 500
+
+
+@app.route('/api/knowledge/proposals/approve-all', methods=['POST'])
+@api_login_required
+def approve_all_proposals():
+    """Auto-approve all pending proposals and add to book in logical order"""
+    try:
+        from services.content_organizer import get_content_organizer
+        from services.knowledge_base import get_knowledge_base_service
+        
+        data = request.json or {}
+        book_id = data.get('book_id')
+        
+        if not book_id:
+            return jsonify({'error': 'book_id required'}), 400
+        
+        book = KnowledgeBook.query.get(book_id)
+        if not book:
+            return jsonify({'error': 'Book not found'}), 404
+        
+        # Get all pending proposals
+        proposals = ContentOrganizationProposal.query.filter_by(status='pending').order_by(
+            ContentOrganizationProposal.document_id,
+            ContentOrganizationProposal.created_at
+        ).all()
+        
+        if not proposals:
+            return jsonify({
+                'status': 'success',
+                'message': 'No pending proposals',
+                'sections_created': 0
+            })
+        
+        print(f"\n[INFO] Auto-approving {len(proposals)} proposals to '{book.title}'")
+        
+        kb_service = get_knowledge_base_service()
+        organizer = get_content_organizer()
+        
+        sections_created = 0
+        errors = []
+        
+        # Get current max section order
+        current_max_order = db.session.query(db.func.max(KnowledgeSection.section_order)).filter_by(book_id=book.id).scalar() or -1
+        next_order = current_max_order + 1
+        
+        for proposal in proposals:
+            try:
+                doc = KnowledgeDocument.query.get(proposal.document_id)
+                
+                # Extract pages
+                _, _, pages_data = kb_service.extract_text_from_pdf(doc.file_path, doc.id)
+                
+                # Apply organization
+                proposal_dict = json.loads(proposal.proposed_content)
+                result = organizer.apply_organization(proposal_dict, pages_data)
+                
+                if result['status'] == 'success':
+                    # Create section
+                    section = KnowledgeSection(
+                        document_id=doc.id,
+                        book_id=book.id,
+                        title=result['title'],
+                        content=result['content'],
+                        content_markdown=result.get('content', ''),
+                        page_numbers=result['pages'],
+                        section_order=next_order,
+                        section_type='chapter'
+                    )
+                    db.session.add(section)
+                    next_order += 1
+                    
+                    # Mark proposal as approved
+                    proposal.status = 'approved'
+                    proposal.reviewed_at = datetime.now(timezone.utc)
+                    
+                    sections_created += 1
+                    print(f"[SUCCESS] Created section: {result['title']}")
+                
+            except Exception as e:
+                error_msg = f"Failed to process proposal {proposal.id}: {str(e)}"
+                print(f"[ERROR] {error_msg}")
+                errors.append(error_msg)
+                continue
+        
+        db.session.commit()
+        
+        print(f"[INFO] Auto-approval complete: {sections_created} sections created")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Created {sections_created} sections in {book.title}',
+            'sections_created': sections_created,
+            'errors': errors if errors else None
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/proposals/<int:proposal_id>/approve', methods=['POST'])
+@api_login_required
+def approve_organization_proposal(proposal_id):
+    """Approve single organization proposal to a book"""
+    try:
+        from services.content_organizer import get_content_organizer
+        from services.knowledge_base import get_knowledge_base_service
+        
+        data = request.json or {}
+        
+        proposal = ContentOrganizationProposal.query.get_or_404(proposal_id)
+        
+        if proposal.status != 'pending':
+            return jsonify({'error': 'Proposal already processed'}), 400
+        
+        # Get book selection from request
+        book_id = data.get('book_id')
+        create_new_book = data.get('create_new_book', False)
+        new_book_title = data.get('new_book_title', '')
+        
+        # Get document and pages
+        doc = KnowledgeDocument.query.get(proposal.document_id)
+        kb_service = get_knowledge_base_service()
+        
+        # Extract pages again
+        _, _, pages_data = kb_service.extract_text_from_pdf(doc.file_path, doc.id)
+        
+        # Apply organization
+        organizer = get_content_organizer()
+        proposal_dict = json.loads(proposal.proposed_content)
+        result = organizer.apply_organization(proposal_dict, pages_data)
+        
+        if result['status'] == 'success':
+            # Determine which book to use
+            if create_new_book:
+                # Create new book
+                book = KnowledgeBook(
+                    title=new_book_title or f"Trading Notes - {doc.original_filename.replace('.pdf', '')}",
+                    description=f"Organized content from {doc.original_filename}"
+                )
+                db.session.add(book)
+                db.session.flush()
+            elif book_id:
+                # Use existing book
+                book = KnowledgeBook.query.get(book_id)
+                if not book:
+                    return jsonify({'error': 'Selected book not found'}), 404
+            else:
+                return jsonify({'error': 'Must specify either book_id or create_new_book'}), 400
+            
+            # Get next section order
+            current_max_order = db.session.query(db.func.max(KnowledgeSection.section_order)).filter_by(book_id=book.id).scalar() or -1
+            
+            # Create knowledge section linked to book
+            section = KnowledgeSection(
+                document_id=doc.id,
+                book_id=book.id,
+                title=result['title'],
+                content=result['content'],
+                content_markdown=result.get('content', ''),
+                page_numbers=result['pages'],
+                section_order=current_max_order + 1,
+                section_type='chapter'
+            )
+            db.session.add(section)
+            
+            # Update proposal status
+            proposal.status = 'approved'
+            proposal.reviewed_at = datetime.now(timezone.utc)
+            
+            db.session.commit()
+            
+            return jsonify({
+                'status': 'success',
+                'section': section.to_dict(),
+                'book': book.to_dict(),
+                'message': f'Section added to book: {book.title}'
+            })
+        else:
+            return jsonify({'error': 'Failed to apply organization'}), 500
+            
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/proposals/<int:proposal_id>/reject', methods=['POST'])
+@api_login_required
+def reject_organization_proposal(proposal_id):
+    """Reject organization proposal"""
+    try:
+        proposal = ContentOrganizationProposal.query.get_or_404(proposal_id)
+        
+        proposal.status = 'rejected'
+        proposal.reviewed_at = datetime.now(timezone.utc)
+        db.session.commit()
+        
+        return jsonify({'status': 'success', 'message': 'Proposal rejected'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/chat', methods=['POST'])
+@api_login_required
+def knowledge_chat():
+    """Chat with knowledge base"""
+    try:
+        from services.rag_chatbot import get_rag_chatbot
+        
+        data = request.json
+        
+        if not data or not data.get('query'):
+            return jsonify({'error': 'Query is required'}), 400
+        
+        query = data['query'].strip()
+        
+        if len(query) < 3:
+            return jsonify({'error': 'Query too short'}), 400
+        
+        print(f"\n[INFO] ========== Chat Query ==========")
+        print(f"[INFO] Query: {query}")
+        
+        # Get chatbot response
+        print("[INFO] Initializing RAG chatbot...")
+        chatbot = get_rag_chatbot()
+        
+        print("[INFO] Processing query...")
+        print("[INFO] Step 1: Searching vector database for relevant chunks...")
+        
+        result = chatbot.query(query, include_sources=True)
+        
+        if result['status'] == 'success':
+            print(f"[INFO] Step 2: Found {len(result.get('sources', []))} relevant sources")
+            print(f"[INFO] Step 3: Generating response with LLM (gpt-oss:20b)...")
+            print(f"[SUCCESS] Response generated in {result.get('response_time', 0):.2f}s")
+            print(f"[INFO] Response length: {len(result['response'])} characters")
+            
+            # Save to chat history
+            chat_entry = ChatHistory(
+                query=query,
+                response=result['response'],
+                sources=json.dumps(result.get('sources', [])),
+                response_time=result.get('response_time')
+            )
+            db.session.add(chat_entry)
+            db.session.commit()
+            
+            print("[INFO] Chat history saved")
+            print("[INFO] ========== Chat Complete ==========\n")
+            
+            return jsonify(result)
+        else:
+            print(f"[ERROR] Chat failed: {result.get('error', 'Unknown error')}")
+            print("[INFO] ========== Chat Failed ==========\n")
+            return jsonify(result), 500
+            
+    except Exception as e:
+        print(f"[ERROR] Chat endpoint failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        print("[INFO] ========== Chat Error ==========\n")
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/chat/history', methods=['GET'])
+@api_login_required
+def get_chat_history():
+    """Get chat history"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        
+        history = ChatHistory.query.order_by(
+            ChatHistory.timestamp.desc()
+        ).limit(limit).all()
+        
+        return jsonify([h.to_dict() for h in history])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/chat/history', methods=['DELETE'])
+@api_login_required
+def clear_chat_history():
+    """Clear all chat history"""
+    try:
+        ChatHistory.query.delete()
+        db.session.commit()
+        
+        return jsonify({'status': 'success', 'message': 'Chat history cleared'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/reindex', methods=['POST'])
+@api_login_required
+def reindex_knowledge_base():
+    """Rebuild vector database from all documents"""
+    try:
+        from services.knowledge_base import get_knowledge_base_service
+        
+        # Get all documents
+        documents = KnowledgeDocument.query.all()
+        
+        if not documents:
+            return jsonify({'error': 'No documents to reindex'}), 400
+        
+        documents_data = [
+            {
+                'id': doc.id,
+                'filename': doc.filename,
+                'file_path': doc.file_path
+            }
+            for doc in documents
+        ]
+        
+        kb_service = get_knowledge_base_service()
+        result = kb_service.reindex_all(documents_data)
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/sections', methods=['GET'])
+@api_login_required
+def get_knowledge_sections():
+    """Get organized knowledge sections"""
+    try:
+        document_id = request.args.get('document_id', type=int)
+        
+        query = KnowledgeSection.query
+        if document_id:
+            query = query.filter_by(document_id=document_id)
+        
+        sections = query.order_by(KnowledgeSection.section_order).all()
+        
+        return jsonify([s.to_dict() for s in sections])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/stats', methods=['GET'])
+@api_login_required
+def get_knowledge_stats():
+    """Get knowledge base statistics"""
+    try:
+        from services.knowledge_base import get_knowledge_base_service
+        
+        kb_service = get_knowledge_base_service()
+        vector_stats = kb_service.get_collection_stats()
+        
+        stats = {
+            'total_documents': KnowledgeDocument.query.count(),
+            'total_sections': KnowledgeSection.query.count(),
+            'pending_proposals': ContentOrganizationProposal.query.filter_by(status='pending').count(),
+            'total_pages': db.session.query(db.func.sum(KnowledgeDocument.total_pages)).scalar() or 0,
+            'vector_store': vector_stats
+        }
+        
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/config', methods=['GET'])
+@api_login_required
+def get_knowledge_config():
+    """Get knowledge base configuration"""
+    try:
+        from config.knowledge_base import config
+        
+        return jsonify(config.get_config_summary())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/config/validate', methods=['GET'])
+@api_login_required
+def validate_knowledge_config():
+    """Validate knowledge base configuration and check model availability"""
+    try:
+        from config.knowledge_base import config
+        
+        validation_result = config.validate_config()
+        
+        return jsonify(validation_result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# Book Management Endpoints
+# ============================================================================
+
+@app.route('/api/knowledge/books', methods=['GET'])
+@api_login_required
+def get_books():
+    """List all books"""
+    try:
+        books = KnowledgeBook.query.order_by(KnowledgeBook.created_at.desc()).all()
+        return jsonify({
+            'status': 'success',
+            'books': [book.to_dict() for book in books]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/books', methods=['POST'])
+@api_login_required
+def create_book():
+    """Create a new book"""
+    try:
+        data = request.json
+        
+        if not data or not data.get('title'):
+            return jsonify({'error': 'Title is required'}), 400
+        
+        book = KnowledgeBook(
+            title=data['title'],
+            description=data.get('description', '')
+        )
+        
+        db.session.add(book)
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'book': book.to_dict()
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/books/<int:book_id>', methods=['GET'])
+@api_login_required
+def get_book(book_id):
+    """Get a book with all sections"""
+    try:
+        book = KnowledgeBook.query.get_or_404(book_id)
+        
+        # Get sections ordered hierarchically
+        sections = KnowledgeSection.query.filter_by(
+            book_id=book_id,
+            parent_section_id=None
+        ).order_by(KnowledgeSection.section_order).all()
+        
+        result = book.to_dict()
+        result['sections'] = [s.to_dict(include_images=True, include_subsections=True) for s in sections]
+        
+        return jsonify({
+            'status': 'success',
+            'book': result
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/books/<int:book_id>', methods=['PUT'])
+@api_login_required
+def update_book(book_id):
+    """Update book metadata"""
+    try:
+        book = KnowledgeBook.query.get_or_404(book_id)
+        data = request.json
+        
+        if 'title' in data:
+            book.title = data['title']
+        if 'description' in data:
+            book.description = data['description']
+        
+        book.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'book': book.to_dict()
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/books/<int:book_id>', methods=['DELETE'])
+@api_login_required
+def delete_book(book_id):
+    """Delete a book and all its sections"""
+    try:
+        book = KnowledgeBook.query.get_or_404(book_id)
+        db.session.delete(book)
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Book deleted successfully'
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# Section CRUD Endpoints
+# ============================================================================
+
+@app.route('/api/knowledge/sections', methods=['POST'])
+@api_login_required
+def create_section():
+    """Create new section manually"""
+    try:
+        data = request.json
+        
+        if not data or not data.get('title'):
+            return jsonify({'error': 'Title is required'}), 400
+        
+        section = KnowledgeSection(
+            book_id=data.get('book_id'),
+            parent_section_id=data.get('parent_section_id'),
+            title=data['title'],
+            content=data.get('content', ''),
+            content_markdown=data.get('content_markdown', ''),
+            section_type=data.get('section_type', 'section'),
+            section_order=data.get('section_order', 0),
+            page_numbers=data.get('page_numbers', '')
+        )
+        
+        db.session.add(section)
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'section': section.to_dict()
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/sections/<int:section_id>', methods=['PUT'])
+@api_login_required
+def update_section(section_id):
+    """Update section content/metadata"""
+    try:
+        section = KnowledgeSection.query.get_or_404(section_id)
+        data = request.json
+        
+        # Update allowed fields
+        if 'title' in data:
+            section.title = data['title']
+        if 'content' in data:
+            section.content = data['content']
+        if 'content_markdown' in data:
+            section.content_markdown = data['content_markdown']
+        if 'section_type' in data:
+            section.section_type = data['section_type']
+        if 'section_order' in data:
+            section.section_order = data['section_order']
+        if 'parent_section_id' in data:
+            section.parent_section_id = data['parent_section_id']
+        if 'page_numbers' in data:
+            section.page_numbers = data['page_numbers']
+        
+        section.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'section': section.to_dict(include_images=True)
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/sections/<int:section_id>', methods=['DELETE'])
+@api_login_required
+def delete_section(section_id):
+    """Delete section"""
+    try:
+        section = KnowledgeSection.query.get_or_404(section_id)
+        db.session.delete(section)
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Section deleted successfully'
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/sections/reorder', methods=['POST'])
+@api_login_required
+def reorder_sections():
+    """Reorder sections"""
+    try:
+        data = request.json
+        
+        if not data or 'section_ids' not in data:
+            return jsonify({'error': 'section_ids array is required'}), 400
+        
+        section_ids = data['section_ids']
+        
+        # Update order for each section
+        for order, section_id in enumerate(section_ids):
+            section = KnowledgeSection.query.get(section_id)
+            if section:
+                section.section_order = order
+        
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Reordered {len(section_ids)} sections'
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/sections/<int:section_id>/images', methods=['POST'])
+@api_login_required
+def add_section_image(section_id):
+    """Add image to section"""
+    try:
+        section = KnowledgeSection.query.get_or_404(section_id)
+        data = request.json
+        
+        if not data or not data.get('image_path'):
+            return jsonify({'error': 'image_path is required'}), 400
+        
+        image = KnowledgeSectionImage(
+            section_id=section_id,
+            image_path=data['image_path'],
+            caption=data.get('caption', ''),
+            position=data.get('position', 0),
+            source_page=data.get('source_page'),
+            width=data.get('width'),
+            height=data.get('height')
+        )
+        
+        db.session.add(image)
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'image': image.to_dict()
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# Book Export Endpoints
+# ============================================================================
+
+@app.route('/api/knowledge/books/<int:book_id>/reorganize', methods=['POST'])
+@api_login_required
+def reorganize_book(book_id):
+    """Analyze and reorganize book into logical chapter hierarchy"""
+    try:
+        from services.book_organizer import get_book_organizer
+        
+        print(f"\n[INFO] ========== Book Reorganization ==========")
+        print(f"[INFO] Book ID: {book_id}")
+        
+        book = KnowledgeBook.query.get_or_404(book_id)
+        print(f"[INFO] Book: {book.title}")
+        
+        # Get all sections
+        sections = KnowledgeSection.query.filter_by(
+            book_id=book_id,
+            parent_section_id=None
+        ).order_by(KnowledgeSection.section_order).all()
+        
+        print(f"[INFO] Found {len(sections)} sections to organize")
+        
+        if not sections:
+            return jsonify({'error': 'No sections to organize'}), 400
+        
+        # Analyze and get organization proposal
+        organizer = get_book_organizer()
+        sections_data = [s.to_dict() for s in sections]
+        
+        result = organizer.analyze_and_organize_book(book.title, sections_data)
+        
+        if result['status'] == 'success':
+            organization = result['organization']
+            chapters = organization['chapters']
+            
+            print(f"[INFO] Proposed {len(chapters)} chapters")
+            
+            # Apply organization (create chapter structure)
+            new_order = 0
+            created_chapters = []
+            
+            for chapter_def in chapters:
+                print(f"[INFO] Creating chapter: {chapter_def['title']}")
+                
+                # Create parent chapter
+                parent_chapter = KnowledgeSection(
+                    book_id=book_id,
+                    title=chapter_def['title'],
+                    content=f"# {chapter_def['title']}\n\nThis chapter covers essential concepts in {chapter_def['title'].lower()}.",
+                    content_markdown=f"# {chapter_def['title']}\n\nThis chapter covers essential concepts.",
+                    section_type='chapter',
+                    section_order=new_order,
+                    parent_section_id=None
+                )
+                db.session.add(parent_chapter)
+                db.session.flush()  # Get ID
+                
+                new_order += 1
+                subsection_count = 0
+                
+                # Move matching sections under this chapter
+                for section_idx in chapter_def['section_ids']:
+                    if 0 <= section_idx - 1 < len(sections):
+                        section = sections[section_idx - 1]
+                        section.parent_section_id = parent_chapter.id
+                        section.section_order = new_order
+                        section.section_type = 'section'
+                        new_order += 1
+                        subsection_count += 1
+                
+                created_chapters.append({
+                    'id': parent_chapter.id,
+                    'title': parent_chapter.title,
+                    'sections_count': subsection_count
+                })
+                
+                print(f"[SUCCESS] Created '{parent_chapter.title}' with {subsection_count} sections")
+            
+            db.session.commit()
+            
+            print(f"[INFO] ========== Reorganization Complete ==========\n")
+            
+            return jsonify({
+                'status': 'success',
+                'message': f'Organized into {len(created_chapters)} chapters',
+                'chapters': created_chapters,
+                'method': organization.get('method', 'unknown')
+            })
+        else:
+            return jsonify({'error': 'Organization failed'}), 500
+            
+    except Exception as e:
+        print(f"[ERROR] Reorganization failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/books/<int:book_id>/synthesize', methods=['POST'])
+@api_login_required
+def synthesize_book_content(book_id):
+    """Synthesize raw content into clean educational prose"""
+    try:
+        from services.content_synthesizer import get_content_synthesizer
+        
+        print(f"\n[INFO] ========== Content Synthesis ==========")
+        print(f"[INFO] Book ID: {book_id}")
+        
+        book = KnowledgeBook.query.get_or_404(book_id)
+        print(f"[INFO] Book: {book.title}")
+        
+        # Get all parent chapters
+        chapters = KnowledgeSection.query.filter_by(
+            book_id=book_id,
+            parent_section_id=None,
+            section_type='chapter'
+        ).order_by(KnowledgeSection.section_order).all()
+        
+        print(f"[INFO] Found {len(chapters)} chapters to synthesize")
+        
+        if not chapters:
+            return jsonify({'error': 'No chapters found. Run reorganize first.'}), 400
+        
+        synthesizer = get_content_synthesizer()
+        processed_chapters = []
+        
+        for chapter in chapters:
+            print(f"\n[INFO] Processing chapter: {chapter.title}")
+            
+            # Get child sections
+            child_sections = KnowledgeSection.query.filter_by(
+                parent_section_id=chapter.id
+            ).order_by(KnowledgeSection.section_order).all()
+            
+            if not child_sections:
+                continue
+            
+            sections_data = [s.to_dict() for s in child_sections]
+            
+            # Synthesize chapter content
+            result = synthesizer.synthesize_chapter_content(
+                chapter_title=chapter.title,
+                sections_data=sections_data
+            )
+            
+            # Update chapter introduction
+            chapter.content = f"# {result['chapter_title']}\n\n{result['introduction']}"
+            chapter.content_markdown = chapter.content
+            
+            # Update each section with synthesized content
+            for idx, synth_section in enumerate(result['sections']):
+                if idx < len(child_sections):
+                    section = child_sections[idx]
+                    section.title = synth_section['title']
+                    section.content = synth_section['content']
+                    section.content_markdown = synth_section['content']
+                    
+                    print(f"[SUCCESS] Updated section: {section.title}")
+            
+            processed_chapters.append({
+                'id': chapter.id,
+                'title': chapter.title,
+                'sections_updated': len(result['sections'])
+            })
+        
+        db.session.commit()
+        
+        print(f"\n[INFO] ========== Synthesis Complete ==========\n")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Synthesized {len(processed_chapters)} chapters',
+            'chapters': processed_chapters
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Synthesis failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/knowledge/books/<int:book_id>/export', methods=['GET'])
+@api_login_required
+def export_book(book_id):
+    """Export book to PDF or HTML"""
+    try:
+        print(f"\n[INFO] Export request for book {book_id}")
+        
+        export_format = request.args.get('format', 'html').lower()
+        print(f"[INFO] Export format: {export_format}")
+        
+        if export_format not in ['html', 'pdf']:
+            return jsonify({'error': 'Invalid format. Use html or pdf'}), 400
+        
+        # Get book and sections
+        book = KnowledgeBook.query.get_or_404(book_id)
+        print(f"[INFO] Found book: {book.title}")
+        
+        sections = KnowledgeSection.query.filter_by(
+            book_id=book_id,
+            parent_section_id=None
+        ).order_by(KnowledgeSection.section_order).all()
+        print(f"[INFO] Found {len(sections)} sections")
+        
+        if not sections:
+            return jsonify({
+                'error': 'No sections in this book. Add content before exporting.',
+                'book_title': book.title
+            }), 400
+        
+        try:
+            from services.book_exporter import get_book_exporter
+            exporter = get_book_exporter()
+            print("[INFO] Book exporter initialized")
+        except ImportError as ie:
+            print(f"[ERROR] Failed to import book_exporter: {str(ie)}")
+            return jsonify({
+                'error': 'Export service not available',
+                'details': str(ie)
+            }), 500
+        
+        book_data = book.to_dict()
+        sections_data = [s.to_dict(include_images=True, include_subsections=True) for s in sections]
+        base_path = os.path.abspath('.')
+        
+        if export_format == 'html':
+            try:
+                print("[INFO] Generating HTML...")
+                html_content = exporter.export_to_html(book_data, sections_data, base_path)
+                print(f"[INFO] HTML generated ({len(html_content)} bytes)")
+                
+                # Create response with HTML file
+                from flask import make_response
+                response = make_response(html_content)
+                response.headers['Content-Type'] = 'text/html; charset=utf-8'
+                response.headers['Content-Disposition'] = f'attachment; filename="{book.title}.html"'
+                return response
+            except Exception as html_error:
+                print(f"[ERROR] HTML export failed: {str(html_error)}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({
+                    'error': f'HTML export failed: {str(html_error)}',
+                    'type': type(html_error).__name__
+                }), 500
+            
+        else:  # pdf
+            try:
+                print("[INFO] Generating PDF...")
+                pdf_bytes = exporter.export_to_pdf(book_data, sections_data, base_path)
+                print(f"[INFO] PDF generated ({len(pdf_bytes)} bytes)")
+                
+                from flask import make_response
+                response = make_response(pdf_bytes)
+                response.headers['Content-Type'] = 'application/pdf'
+                response.headers['Content-Disposition'] = f'attachment; filename="{book.title}.pdf"'
+                return response
+                
+            except Exception as pdf_error:
+                print(f"[ERROR] PDF export failed: {str(pdf_error)}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({
+                    'error': f'PDF export failed: {str(pdf_error)}',
+                    'suggestion': 'Install weasyprint or reportlab: pip install weasyprint',
+                    'type': type(pdf_error).__name__
+                }), 500
+                
+    except Exception as e:
+        print(f"[ERROR] Export endpoint failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e), 'type': type(e).__name__}), 500
+
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+    
+    # Auto-backup on startup (daily basis, keeps last 5 backups)
+    try:
+        from utils.backup import auto_backup_on_startup
+        
+        # Get database path from config
+        db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+        if db_uri.startswith('sqlite:///'):
+            db_path = db_uri.replace('sqlite:///', '')
+            
+            # Make path absolute if it's relative
+            if not os.path.isabs(db_path):
+                db_path = os.path.join(os.path.dirname(__file__), db_path)
+            
+            # Run auto-backup
+            backup_dir = os.path.join(os.path.dirname(__file__), 'backups')
+            backup_result = auto_backup_on_startup(db_path, backup_dir, keep_count=5)
+            
+            if backup_result['status'] == 'success':
+                print(f"[STARTUP] ✓ Backup created! Total: {backup_result.get('total_backups', 0)}")
+                if backup_result.get('backups_deleted', 0) > 0:
+                    print(f"[STARTUP] ✓ Cleaned up {backup_result['backups_deleted']} old backup(s)")
+            elif backup_result['status'] == 'skipped':
+                reason = backup_result.get('reason', 'unknown')
+                if reason == 'backup_already_exists_for_today':
+                    print(f"[STARTUP] ✓ Backup up-to-date (Total: {backup_result.get('total_backups', 0)} backups)")
+        else:
+            print("[STARTUP] Auto-backup only supported for SQLite databases")
+            
+    except Exception as e:
+        print(f"[STARTUP] Auto-backup warning: {str(e)}")
+        # Don't stop the app if backup fails
+    
     app.run(debug=True, port=5000)
 

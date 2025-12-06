@@ -2,8 +2,8 @@
 
 A comprehensive personal finance management platform for tracking stocks, mutual funds, fixed deposits, EPF, NPS, savings, lending, income, expenses, and budgets - all in one place.
 
-**Project Status:** 🎉 **Phase 3 COMPLETE + Swing Trading Enhanced**  
-**Last Updated:** November 29, 2025  
+**Project Status:** 🎉 **Phase 3 COMPLETE + RAG Knowledge Base**  
+**Last Updated:** December 6, 2025  
 **Production Ready:** ✅ Yes
 
 ---
@@ -12,7 +12,8 @@ A comprehensive personal finance management platform for tracking stocks, mutual
 
 - **[Getting Started](GETTING_STARTED.md)** - Setup and installation (15 minutes)
 - **[Features](docs/FEATURES.md)** - Feature guide with examples
-- **[Roadmap](ROADMAP.md)** - Current status and future plans
+- **[RAG Knowledge Base](KNOWLEDGE_BASE_README.md)** - PDF chatbot & book organization
+- **[Roadmap](docs/ROADMAP.md)** - Current status and future plans
 - **[Contributing](CONTRIBUTING.md)** - How to extend the platform
 
 ---
@@ -32,7 +33,8 @@ A comprehensive personal finance management platform for tracking stocks, mutual
 - **Analytics** - Charts, top gainers/losers, sector/market cap allocation, parent sector management
 - **Health Metrics** - Concentration, diversification analysis
 - **Recommendations** - Rebalancing suggestions (attention-sorted), price zone alerts
-- **Settings** - Import/export, database backup/restore, configurable limits
+- **Settings** - Import/export, automatic daily backup, configurable limits
+- **📚 RAG Knowledge Base** - Upload PDFs, AI chatbot, book organization ([See Guide](KNOWLEDGE_BASE_README.md))
 
 See [docs/PHASE2_SUMMARY.md](docs/PHASE2_SUMMARY.md) for detailed Phase 2 implementation summary.
 
