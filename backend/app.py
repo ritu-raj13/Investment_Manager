@@ -2291,7 +2291,12 @@ def get_recommendations_dashboard():
         rebalancing = get_rebalancing_suggestions(holdings_list, stocks, total_target_amount, settings, parent_sector_mappings)
         
         # Get alert zone action items (moved from analytics)
-        holding_symbols_normalized = set(normalize_symbol(s) for s in holdings_dict.keys())
+        # CRITICAL: Only include stocks with quantity > 0 (current holdings)
+        holding_symbols_normalized = set(
+            normalize_symbol(symbol) 
+            for symbol, holding in holdings_dict.items() 
+            if holding.get('quantity', 0) > 0
+        )
         
         action_items = {
             'in_buy_zone': [],
@@ -2310,8 +2315,11 @@ def get_recommendations_dashboard():
             is_held = normalized_symbol in holding_symbols_normalized
             
             # Buy Zone - Only show if NOT held (watching stocks only)
+            # Enhanced: Alert for in-zone, below zone (3%), and above zone (3%)
             if stock.buy_zone_price and not is_held:
                 buy_min, buy_max = parse_zone(stock.buy_zone_price)
+                
+                # In Buy Zone: price within the defined range or below it
                 if buy_max and stock.current_price <= buy_max:
                     action_items['in_buy_zone'].append({
                         'symbol': stock.symbol,
@@ -2321,6 +2329,7 @@ def get_recommendations_dashboard():
                         'zone': stock.buy_zone_price,
                         'is_held': is_held
                     })
+                # Near Buy Zone - Above: price slightly above max (within 3%)
                 elif buy_max and stock.current_price <= buy_max * 1.03:
                     distance_pct = ((stock.current_price - buy_max) / buy_max) * 100
                     action_items['near_buy_zone'].append({
@@ -2331,6 +2340,19 @@ def get_recommendations_dashboard():
                         'zone': stock.buy_zone_price,
                         'distance_pct': distance_pct,
                         'distance_type': 'above',
+                        'is_held': is_held
+                    })
+                # Near Buy Zone - Below: price slightly below min (within 3% below buy_min)
+                elif buy_min and stock.current_price >= buy_min * 0.97 and stock.current_price < buy_min:
+                    distance_pct = ((buy_min - stock.current_price) / buy_min) * 100
+                    action_items['near_buy_zone'].append({
+                        'symbol': stock.symbol,
+                        'name': stock.name,
+                        'sector': stock.sector,
+                        'current_price': stock.current_price,
+                        'zone': stock.buy_zone_price,
+                        'distance_pct': distance_pct,
+                        'distance_type': 'below',
                         'is_held': is_held
                     })
             
