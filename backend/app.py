@@ -5,6 +5,7 @@ from flask_login import login_user, logout_user, current_user
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from datetime import datetime, timezone
+import time
 import yfinance as yf
 from typing import List, Dict
 import os
@@ -35,6 +36,11 @@ from utils import (
 )
 from services import get_nse_price, get_scraped_price, get_stock_details
 from services.mf_api import fetch_mf_nav_by_name, fetch_mf_nav, get_mf_scheme_details
+from services.screener_parser import (
+    classify_market_cap_tier,
+    fetch_market_cap_rank_thresholds,
+    fetch_company_supplement,
+)
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -161,6 +167,12 @@ class PortfolioSettings(db.Model):
     max_stocks_per_sector = db.Column(db.Integer, default=2)  # Max number of stocks per parent sector
     max_total_stocks = db.Column(db.Integer, default=30)  # Max total stocks in portfolio
     
+    # Screener-derived MC cutoffs (Rs. Cr) for Large/Mid/Small/Micro (ranks 100 / 250 / 500)
+    mc_threshold_rank_100 = db.Column(db.Float, nullable=True)
+    mc_threshold_rank_250 = db.Column(db.Float, nullable=True)
+    mc_threshold_rank_500 = db.Column(db.Float, nullable=True)
+    mc_thresholds_updated_at = db.Column(db.DateTime, nullable=True)
+    
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     def to_dict(self):
@@ -186,6 +198,11 @@ class PortfolioSettings(db.Model):
             # Overall limits
             'max_stocks_per_sector': self.max_stocks_per_sector,
             'max_total_stocks': self.max_total_stocks,
+            # Market cap tier thresholds (Rs. Cr)
+            'mc_threshold_rank_100': self.mc_threshold_rank_100,
+            'mc_threshold_rank_250': self.mc_threshold_rank_250,
+            'mc_threshold_rank_500': self.mc_threshold_rank_500,
+            'mc_thresholds_updated_at': self.mc_thresholds_updated_at.isoformat() if self.mc_thresholds_updated_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
@@ -905,6 +922,21 @@ def health_check():
     })
 
 
+def _market_cap_tier_from_details(details):
+    """Map company MC (Cr) to Large/Mid/Small/Micro using saved portfolio thresholds."""
+    if not details or details.get('market_cap_cr') is None:
+        return None
+    settings = PortfolioSettings.query.first()
+    if not settings:
+        return None
+    return classify_market_cap_tier(
+        details['market_cap_cr'],
+        settings.mc_threshold_rank_100,
+        settings.mc_threshold_rank_250,
+        settings.mc_threshold_rank_500,
+    )
+
+
 # ============================================================================
 # Stock Tracking Routes (Auth required)
 # ============================================================================
@@ -936,13 +968,14 @@ def create_stock():
     if existing_stock:
         return jsonify({'error': 'Stock with this symbol already exists'}), 400
     
-    # Auto-fetch name, price, and 1D change from Screener.in if missing
+    # Auto-fetch name, price, 1D change, sector, market cap tier from Screener / scrapers if missing
     stock_name = data.get('name', '').strip()
     stock_price = data.get('current_price')
     day_change = data.get('day_change_pct')
+    stock_sector = (data.get('sector') or '').strip() or None
+    stock_market_cap = (data.get('market_cap') or '').strip() or None
     
-    if not stock_name or not stock_price or day_change is None:
-        # Try to fetch from Screener.in
+    if not stock_name or not stock_price or day_change is None or not stock_sector or not stock_market_cap:
         try:
             details = get_stock_details(data['symbol'].upper())
             if details:
@@ -952,6 +985,12 @@ def create_stock():
                     stock_price = details['price']
                 if day_change is None and details.get('day_change_pct') is not None:
                     day_change = details['day_change_pct']
+                if not stock_sector and details.get('sector'):
+                    stock_sector = details['sector']
+                if not stock_market_cap:
+                    tier = _market_cap_tier_from_details(details)
+                    if tier:
+                        stock_market_cap = tier
                 print(f"[OK] Auto-fetched details for {data['symbol']}: {stock_name} @ Rs.{stock_price} ({day_change:+.2f}%)" if day_change is not None else f"[OK] Auto-fetched details for {data['symbol']}: {stock_name} @ Rs.{stock_price}")
         except Exception as e:
             print(f"[WARN] Could not auto-fetch details: {str(e)}")
@@ -964,8 +1003,8 @@ def create_stock():
         symbol=clean_symbol(data['symbol']),
         name=stock_name,
         group_name=data.get('group_name'),
-        sector=data.get('sector'),
-        market_cap=data.get('market_cap'),
+        sector=stock_sector or data.get('sector'),
+        market_cap=stock_market_cap or data.get('market_cap'),
         buy_zone_price=data.get('buy_zone_price'),
         sell_zone_price=data.get('sell_zone_price'),
         average_zone_price=data.get('average_zone_price'),
@@ -1060,142 +1099,6 @@ def delete_stock(stock_id):
     return jsonify({'message': 'Stock deleted successfully'})
 
 
-@app.route('/api/stocks/refresh-alert-stocks', methods=['POST'])
-@api_login_required
-def refresh_alert_stocks():
-    """Refresh current prices for stocks that appear in any alert category"""
-    
-    # Get all stocks and portfolio holdings
-    all_stocks = Stock.query.all()
-    
-    # Get holdings to determine which stocks user owns
-    transactions = PortfolioTransaction.query.all()
-    holdings = calculate_holdings(transactions)
-    holding_symbols_normalized = set(normalize_symbol(s) for s in holdings.keys())
-    
-    # Identify all alert stocks
-    alert_stock_ids = set()
-    
-    for stock in all_stocks:
-        if not stock.current_price:
-            continue
-        
-        # Flexible symbol matching (check with and without .NS/.BO suffix)
-        is_in_holdings = normalize_symbol(stock.symbol) in holding_symbols_normalized
-        current_price = stock.current_price
-        
-        # Buy zone alerts (only for non-holdings)
-        if not is_in_holdings and stock.buy_zone_price:
-            buy_min, buy_max = parse_zone(stock.buy_zone_price)
-            if buy_min and buy_max:
-                # In buy zone
-                if buy_min <= current_price <= buy_max:
-                    alert_stock_ids.add(stock.id)
-                    continue
-                # Near buy zone (within 3% above)
-                upper_threshold = buy_max * 1.03
-                if buy_max < current_price <= upper_threshold:
-                    alert_stock_ids.add(stock.id)
-                    continue
-        
-        # Sell zone alerts (only for holdings)
-        if is_in_holdings and stock.sell_zone_price:
-            sell_min, sell_max = parse_zone(stock.sell_zone_price)
-            if sell_min and sell_max:
-                # In sell zone
-                if sell_min <= current_price <= sell_max:
-                    alert_stock_ids.add(stock.id)
-                    continue
-                # Near sell zone (within 3% below)
-                lower_threshold = sell_min * 0.97
-                if lower_threshold <= current_price < sell_min:
-                    alert_stock_ids.add(stock.id)
-                    continue
-        
-        # Average zone alerts (only for holdings)
-        if is_in_holdings and stock.average_zone_price:
-            avg_min, avg_max = parse_zone(stock.average_zone_price)
-            if avg_min and avg_max:
-                # In average zone
-                if avg_min <= current_price <= avg_max:
-                    alert_stock_ids.add(stock.id)
-                    continue
-                # Near average zone (within 3% above or below)
-                lower_threshold = avg_min * 0.97
-                upper_threshold = avg_max * 1.03
-                if lower_threshold <= current_price < avg_min or avg_max < current_price <= upper_threshold:
-                    alert_stock_ids.add(stock.id)
-                    continue
-    
-    if not alert_stock_ids:
-        return jsonify(format_refresh_response(0, 0, 0))
-    
-    # Refresh prices for alert stocks
-    alert_stocks = Stock.query.filter(Stock.id.in_(alert_stock_ids)).all()
-    updated_count = 0
-    failed_count = 0
-    
-    for stock in alert_stocks:
-        updated = False
-        
-        # Try web scraping first for Indian stocks (ORIGINAL WORKING LOGIC)
-        if stock.symbol.endswith('.NS') or stock.symbol.endswith('.BO'):
-            try:
-                # Use the ORIGINAL working scraper for price
-                price = get_scraped_price(stock.symbol)
-                if price:
-                    stock.current_price = round(price, 2)
-                    stock.last_updated = datetime.now(timezone.utc)
-                    updated = True
-                    
-                    # Try to get day_change_pct separately (optional, don't fail if it doesn't work)
-                    try:
-                        details = get_stock_details(stock.symbol)
-                        if details and details.get('day_change_pct') is not None:
-                            stock.day_change_pct = details.get('day_change_pct')
-                    except:
-                        pass  # Day change is optional
-                    
-                    print(f"[OK] Scraper: Updated {stock.symbol} -> Rs.{stock.current_price}")
-            except Exception as e:
-                print(f"[WARN] Scraper failed for {stock.symbol}")
-            
-            # Fallback to NSE API
-            if not updated:
-                try:
-                    price = get_nse_price(stock.symbol)
-                    if price:
-                        stock.current_price = round(price, 2)
-                        stock.last_updated = datetime.now(timezone.utc)
-                        updated = True
-                        print(f"[OK] NSE API: Updated {stock.symbol} -> Rs.{stock.current_price}")
-                except Exception as e:
-                    print(f"[WARN] NSE API failed for {stock.symbol}")
-        
-        # Fallback to yfinance
-        if not updated:
-            try:
-                ticker = yf.Ticker(stock.symbol)
-                info = ticker.history(period='1d')
-                if not info.empty:
-                    stock.current_price = round(info['Close'].iloc[-1], 2)
-                    stock.last_updated = datetime.now(timezone.utc)
-                    updated = True
-                    yahoo_count += 1
-                    print(f"[OK] yfinance: Updated {stock.symbol} -> Rs.{stock.current_price}")
-            except Exception as e:
-                print(f"[ERROR] All methods failed for {stock.symbol}")
-        
-        if updated:
-            updated_count += 1
-        else:
-            failed_count += 1
-    
-    db.session.commit()
-    
-    # Return standardized response
-    return jsonify(format_refresh_response(len(alert_stocks), updated_count, failed_count))
-
 @app.route('/api/stocks/refresh-prices', methods=['POST'])
 @api_login_required
 def refresh_stock_prices():
@@ -1207,24 +1110,14 @@ def refresh_stock_prices():
     for stock in stocks:
         updated = False
         
-        # Try web scraping first for Indian stocks (ORIGINAL WORKING LOGIC)
+        # Indian stocks: price scrapers only (no Screener — use Refresh 1D Change for day_change_pct)
         if stock.symbol.endswith('.NS') or stock.symbol.endswith('.BO'):
             try:
-                # Use the ORIGINAL working scraper for price
                 price = get_scraped_price(stock.symbol)
                 if price:
                     stock.current_price = round(price, 2)
                     stock.last_updated = datetime.now(timezone.utc)
                     updated = True
-                    
-                    # Try to get day_change_pct separately (optional, don't fail if it doesn't work)
-                    try:
-                        details = get_stock_details(stock.symbol)
-                        if details and details.get('day_change_pct') is not None:
-                            stock.day_change_pct = details.get('day_change_pct')
-                    except:
-                        pass  # Day change is optional
-                    
                     print(f"[OK] Scraper: Updated {stock.symbol} -> Rs.{stock.current_price}")
             except Exception as e:
                 print(f"[WARN] Scraper failed for {stock.symbol}")
@@ -1264,6 +1157,50 @@ def refresh_stock_prices():
     
     # Return standardized response
     return jsonify(format_refresh_response(len(stocks), updated_count, failed_count))
+
+
+@app.route('/api/stocks/refresh-day-change', methods=['POST'])
+@api_login_required
+def refresh_stock_day_change():
+    """Update day_change_pct from Screener for all tracked .NS / .BO symbols (polite delay)."""
+    stocks = Stock.query.all()
+    updated = 0
+    failed = 0
+    skipped = 0
+    errors_sample = []
+
+    for stock in stocks:
+        sym = stock.symbol or ''
+        if not (sym.endswith('.NS') or sym.endswith('.BO')):
+            skipped += 1
+            continue
+        try:
+            time.sleep(0.55)
+            sup = fetch_company_supplement(sym)
+            pct = sup.get('day_change_pct') if sup else None
+            if pct is not None:
+                stock.day_change_pct = float(pct)
+                updated += 1
+            else:
+                failed += 1
+                if len(errors_sample) < 8:
+                    errors_sample.append(f"{sym}: no day change parsed")
+        except Exception as e:
+            failed += 1
+            if len(errors_sample) < 8:
+                errors_sample.append(f"{sym}: {str(e)}")
+
+    db.session.commit()
+    return jsonify({
+        'message': (
+            f'1D change refreshed: {updated} updated, {failed} failed, '
+            f'{skipped} skipped (non-Indian symbols).'
+        ),
+        'updated': updated,
+        'failed': failed,
+        'skipped': skipped,
+        'errors_sample': errors_sample,
+    })
 
 
 @app.route('/api/stocks/groups', methods=['GET'])
@@ -1310,7 +1247,8 @@ def fetch_stock_details(symbol):
         
         # Set default status based on holdings
         default_status = 'HOLD' if total_quantity > 0 else 'WATCHING'
-        
+        mc_tier = _market_cap_tier_from_details(details)
+
         return jsonify({
             'symbol': symbol,
             'name': details.get('name'),
@@ -1318,7 +1256,11 @@ def fetch_stock_details(symbol):
             'day_change_pct': details.get('day_change_pct'),
             'status': default_status,
             'in_holdings': total_quantity > 0,
-            'quantity': total_quantity if total_quantity > 0 else None
+            'quantity': total_quantity if total_quantity > 0 else None,
+            'sector': details.get('sector'),
+            'sector_peer_raw': details.get('sector_peer_raw'),
+            'market_cap_cr': details.get('market_cap_cr'),
+            'market_cap': mc_tier,
         })
     
     except Exception as e:
@@ -1820,15 +1762,87 @@ def update_portfolio_settings():
     if 'max_total_stocks' in data:
         settings.max_total_stocks = int(data['max_total_stocks'])
     
+    if 'mc_threshold_rank_100' in data:
+        v = data['mc_threshold_rank_100']
+        settings.mc_threshold_rank_100 = float(v) if v is not None and v != '' else None
+    if 'mc_threshold_rank_250' in data:
+        v = data['mc_threshold_rank_250']
+        settings.mc_threshold_rank_250 = float(v) if v is not None and v != '' else None
+    if 'mc_threshold_rank_500' in data:
+        v = data['mc_threshold_rank_500']
+        settings.mc_threshold_rank_500 = float(v) if v is not None and v != '' else None
+    
     settings.updated_at = datetime.now(timezone.utc)
     
     db.session.commit()
     return jsonify(settings.to_dict())
 
 
+@app.route('/api/portfolio/settings/refresh-mc-thresholds', methods=['POST'])
+@api_login_required
+def refresh_mc_thresholds():
+    """Fetch Screener market-cap screen and save rank 100/250/500 cutoffs (Rs. Cr)."""
+    try:
+        triple = fetch_market_cap_rank_thresholds()
+        if not triple:
+            return jsonify({
+                'error': 'Could not load enough companies from Screener (need 500). Try again later.',
+            }), 502
+        t100, t250, t500 = triple
+        settings = PortfolioSettings.query.first()
+        if not settings:
+            settings = PortfolioSettings()
+            db.session.add(settings)
+        settings.mc_threshold_rank_100 = t100
+        settings.mc_threshold_rank_250 = t250
+        settings.mc_threshold_rank_500 = t500
+        settings.mc_thresholds_updated_at = datetime.now(timezone.utc)
+        settings.updated_at = datetime.now(timezone.utc)
+        db.session.commit()
+        return jsonify({
+            'message': 'Market cap thresholds updated from Screener.',
+            'mc_threshold_rank_100': t100,
+            'mc_threshold_rank_250': t250,
+            'mc_threshold_rank_500': t500,
+            'mc_thresholds_updated_at': settings.mc_thresholds_updated_at.isoformat(),
+        })
+    except Exception as e:
+        print(f"[ERROR] refresh_mc_thresholds: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+def _sqlite_file_path_from_uri():
+    uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
+    if not uri.startswith('sqlite:///'):
+        return None
+    path = uri.replace('sqlite:///', '', 1)
+    if not path:
+        return None
+    if not os.path.isabs(path):
+        path = os.path.normpath(os.path.join(os.path.dirname(__file__), path))
+    return path
+
+
+def _run_sqlite_migrations_after_create_all():
+    """db.create_all() does not ALTER existing tables; keep SQLite in sync with models."""
+    db_path = _sqlite_file_path_from_uri()
+    if not db_path or not os.path.isfile(db_path):
+        return
+    try:
+        from migrations.db_migrator import DatabaseMigrator
+
+        migrator = DatabaseMigrator(db_path)
+        migrator.migrate_all()
+    except Exception as e:
+        print(f"[STARTUP] SQLite migration failed: {e}")
+
+
 # Initialize database tables on startup
 with app.app_context():
     db.create_all()
+    _run_sqlite_migrations_after_create_all()
 
 
 # ============================================================================
@@ -2322,6 +2336,7 @@ def get_recommendations_dashboard():
                 # In Buy Zone: price within the defined range or below it
                 if buy_max and stock.current_price <= buy_max:
                     action_items['in_buy_zone'].append({
+                        'id': stock.id,
                         'symbol': stock.symbol,
                         'name': stock.name,
                         'sector': stock.sector,
@@ -2333,6 +2348,7 @@ def get_recommendations_dashboard():
                 elif buy_max and stock.current_price <= buy_max * 1.03:
                     distance_pct = ((stock.current_price - buy_max) / buy_max) * 100
                     action_items['near_buy_zone'].append({
+                        'id': stock.id,
                         'symbol': stock.symbol,
                         'name': stock.name,
                         'sector': stock.sector,
@@ -2346,6 +2362,7 @@ def get_recommendations_dashboard():
                 elif buy_min and stock.current_price >= buy_min * 0.97 and stock.current_price < buy_min:
                     distance_pct = ((buy_min - stock.current_price) / buy_min) * 100
                     action_items['near_buy_zone'].append({
+                        'id': stock.id,
                         'symbol': stock.symbol,
                         'name': stock.name,
                         'sector': stock.sector,
@@ -2361,6 +2378,7 @@ def get_recommendations_dashboard():
                 sell_min, sell_max = parse_zone(stock.sell_zone_price)
                 if sell_min and stock.current_price >= sell_min:
                     action_items['in_sell_zone'].append({
+                        'id': stock.id,
                         'symbol': stock.symbol,
                         'name': stock.name,
                         'sector': stock.sector,
@@ -2371,6 +2389,7 @@ def get_recommendations_dashboard():
                 elif sell_min and stock.current_price >= sell_min * 0.97:
                     distance_pct = ((sell_min - stock.current_price) / sell_min) * 100
                     action_items['near_sell_zone'].append({
+                        'id': stock.id,
                         'symbol': stock.symbol,
                         'name': stock.name,
                         'sector': stock.sector,
@@ -2386,6 +2405,7 @@ def get_recommendations_dashboard():
                 avg_min, avg_max = parse_zone(stock.average_zone_price)
                 if avg_min and avg_max and avg_min <= stock.current_price <= avg_max:
                     action_items['in_average_zone'].append({
+                        'id': stock.id,
                         'symbol': stock.symbol,
                         'name': stock.name,
                         'sector': stock.sector,
@@ -2396,6 +2416,7 @@ def get_recommendations_dashboard():
                 elif avg_max and stock.current_price <= avg_max * 1.03 and stock.current_price > avg_max:
                     distance_pct = ((stock.current_price - avg_max) / avg_max) * 100
                     action_items['near_average_zone'].append({
+                        'id': stock.id,
                         'symbol': stock.symbol,
                         'name': stock.name,
                         'sector': stock.sector,
@@ -2408,6 +2429,7 @@ def get_recommendations_dashboard():
                 elif avg_min and stock.current_price >= avg_min * 0.97 and stock.current_price < avg_min:
                     distance_pct = ((avg_min - stock.current_price) / avg_min) * 100
                     action_items['near_average_zone'].append({
+                        'id': stock.id,
                         'symbol': stock.symbol,
                         'name': stock.name,
                         'sector': stock.sector,
@@ -5893,5 +5915,5 @@ if __name__ == '__main__':
         print(f"[STARTUP] Auto-backup warning: {str(e)}")
         # Don't stop the app if backup fails
     
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5000, threaded=True)
 

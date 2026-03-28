@@ -32,7 +32,7 @@ A comprehensive personal finance management platform for tracking stocks, mutual
 - **Reports** - Net worth trends, allocation evolution, tax summary
 - **Analytics** - Charts, top gainers/losers, sector/market cap allocation, parent sector management
 - **Health Metrics** - Concentration, diversification analysis
-- **Recommendations** - Rebalancing suggestions (attention-sorted), price zone alerts
+- **Recommendations** - Rebalancing suggestions (attention-sorted), price zone alerts, in-page edit of tracking (zones, notes, etc.) from zone rows
 - **Settings** - Import/export, automatic daily backup, configurable limits
 - **📚 RAG Knowledge Base** - Upload PDFs, AI chatbot, book organization ([See Guide](KNOWLEDGE_BASE_README.md))
 

@@ -15,6 +15,8 @@ import re
 from typing import Optional
 import time
 
+from services.screener_parser import fetch_company_supplement
+
 class PriceScraper:
     """
     Multi-source web scraper for fetching Indian stock prices and details.
@@ -112,7 +114,9 @@ class PriceScraper:
                         text = text.replace('₹', '').replace(',', '').strip()
                         try:
                             price = float(text)
-                            if 10 < price < 1000000:  # Sanity check
+                            # Sanity check: Indian stocks can be penny stocks (< 10 Rs) after splits/crashes
+                            # Upper limit to avoid confusing market cap/volume with price
+                            if 0.01 < price < 100000:
                                 print(f"[OK] Google Finance: {symbol} -> Rs.{price}")
                                 return price
                         except:
@@ -123,7 +127,7 @@ class PriceScraper:
                 if meta_price and meta_price.get('content'):
                     try:
                         price = float(meta_price['content'])
-                        if 10 < price < 1000000:
+                        if 0.01 < price < 100000:
                             print(f"[OK] Google Finance (meta): {symbol} -> Rs.{price}")
                             return price
                     except:
@@ -153,7 +157,7 @@ class PriceScraper:
                 for span in price_spans[:10]:  # Check first 10 matches
                     text = span.get_text(strip=True)
                     price = self.extract_price_from_text(text)
-                    if price and 10 < price < 1000000:
+                    if price and 0.01 < price < 100000:
                         print(f"[OK] Moneycontrol: {symbol} -> Rs.{price}")
                         return price
         
@@ -206,9 +210,9 @@ class PriceScraper:
                     text = elem.get_text(strip=True).replace(',', '')
                     try:
                         val = float(text)
-                        # Stock prices are typically between 1 and 100,000
+                        # Stock prices are typically between 0.01 and 100,000
                         # Market cap would be much larger (in crores/lakhs)
-                        if 0.01 < val < 500000:
+                        if 0.01 < val < 100000:
                             # Check if this is the first occurrence (usually price comes before market cap)
                             parent_text = elem.find_parent().get_text() if elem.find_parent() else ""
                             # Skip if it looks like market cap section
@@ -227,7 +231,7 @@ class PriceScraper:
                         if first_number:
                             try:
                                 val = float(first_number.get_text(strip=True).replace(',', ''))
-                                if 0.01 < val < 500000:
+                                if 0.01 < val < 100000:
                                     price = val
                             except:
                                 pass
@@ -248,7 +252,7 @@ class PriceScraper:
                         except:
                             pass
                 
-                if price and 10 < price < 1000000:
+                if price and 0.01 < price < 100000:
                     result = {'price': price, 'name': company_name, 'day_change_pct': day_change_pct}
                     if day_change_pct is not None:
                         print(f"[OK] Screener.in: {symbol} -> {company_name} @ Rs.{price} ({day_change_pct:+.2f}%)")
@@ -278,7 +282,7 @@ class PriceScraper:
                 page_text = soup.get_text()
                 price = self.extract_price_from_text(page_text[:3000])
                 
-                if price and 10 < price < 1000000:
+                if price and 0.01 < price < 100000:
                     print(f"[OK] Investing.com: {symbol} -> Rs.{price}")
                     return price
         
@@ -309,10 +313,13 @@ class PriceScraper:
         result = {
             'price': None,
             'name': None,
-            'day_change_pct': None
+            'day_change_pct': None,
+            'market_cap_cr': None,
+            'sector': None,
+            'sector_peer_raw': None,
         }
         
-        # ALWAYS use working price scraper for price (NEVER use Screener for price)
+        # ALWAYS use working price scraper for price (primary; not Screener)
         try:
             price = self.get_stock_price(symbol)
             if price:
@@ -321,18 +328,27 @@ class PriceScraper:
         except Exception as e:
             print(f"[ERROR] Price fetch failed for {symbol}: {str(e)}")
         
-        # OPTIONALLY try to get name and day_change_pct from Screener (non-blocking)
+        # Screener company page: name, day change, market cap (Cr), peer sector (2nd-last link)
         try:
-            screener_data = self.fetch_from_screener(symbol)
-            if screener_data:
-                if screener_data.get('name'):
-                    result['name'] = screener_data['name']
-                    print(f"[OK] Name from Screener: {screener_data['name']}")
-                if screener_data.get('day_change_pct') is not None:
-                    result['day_change_pct'] = screener_data['day_change_pct']
-                    print(f"[OK] Day change from Screener: {screener_data['day_change_pct']}%")
+            sup = fetch_company_supplement(symbol)
+            if sup:
+                if sup.get('name'):
+                    result['name'] = sup['name']
+                    print(f"[OK] Name from Screener: {sup['name']}")
+                if sup.get('day_change_pct') is not None:
+                    result['day_change_pct'] = sup['day_change_pct']
+                    print(f"[OK] Day change from Screener: {sup['day_change_pct']}%")
+                if sup.get('market_cap_cr') is not None:
+                    result['market_cap_cr'] = sup['market_cap_cr']
+                if sup.get('sector'):
+                    result['sector'] = sup['sector']
+                if sup.get('sector_peer_raw'):
+                    result['sector_peer_raw'] = sup['sector_peer_raw']
+                if result['price'] is None and sup.get('price'):
+                    result['price'] = sup['price']
+                    print(f"[OK] Price fallback from Screener: {symbol} -> Rs.{result['price']}")
         except Exception as e:
-            print(f"[WARN] Screener fetch failed (non-critical): {str(e)}")
+            print(f"[WARN] Screener supplement failed (non-critical): {str(e)}")
         
         return result if result['price'] else None
     

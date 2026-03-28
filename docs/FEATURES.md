@@ -797,6 +797,11 @@ Stocks currently in or near your defined buy/sell/average zones.
 - Stocks approaching buy/sell/average zones
 - Early warning to prepare actions
 
+#### Edit tracking from zone rows
+- Each stock row in **Price Zone Alert Details** includes an **Edit** control that opens the same add/edit dialog as **Stock Tracking** (`StockEditDialog` in the app), loaded with `GET /api/stocks/:id`.
+- The recommendations dashboard includes a stable **`id`** on every `action_items` entry so the client can load and update the correct tracking record.
+- After a successful save, the Recommendations page refreshes in the background (no full-page loading flash) so zone membership stays in sync with updated prices and zones.
+
 ### Rebalancing Recommendations
 
 #### Stocks to Reduce
@@ -838,6 +843,7 @@ Stocks currently in or near your defined buy/sell/average zones.
 - **Prioritize actions**: Buy zone stocks highlighted in rebalancing
 - **Actionable amounts**: Exact ₹ amounts to add/reduce
 - **Context-aware**: Sector and market cap level guidance
+- **At-a-glance summaries**: Top of the page shows **Price Zone Alerts** (Sell / Average / Buy counts) and **Rebalancing Alerts** (Reduce / Add / Concentration counts) with matching card styling.
 
 ---
 
@@ -847,8 +853,14 @@ Stocks currently in or near your defined buy/sell/average zones.
 - Add stocks with buy/sell/average price zones
 - Flexible price ranges (e.g., "250-300" or "250")
 - Symbol normalization (handles .NS/.BO suffixes automatically)
+- **Refresh Prices** updates **current price** only (fast; no Screener). **Refresh 1D Change** updates **day_change_pct** from Screener for Indian symbols (slower; run when you want fresh 1D % for the list and portfolio summaries).
 - Real-time price updates
 - Status tracking (BUY, SELL, HOLD, WATCHING)
+- Editing a stock from the **Recommendations** page (price zone lists) uses the **same form** as Stock Tracking; see [Recommendations](#recommendations) — *Edit tracking from zone rows*.
+
+### Screener-assisted sector and market cap (add / fetch-details)
+- **Sector:** Parsed from Screener **Peer comparison** breadcrumb: the **second-to-last** industry/sector link text (if only one link exists, that value is used). New stocks and **fetch-details** set `sector` automatically. For a **one-time backfill** of existing rows, run `python -u archived_utilities/refresh_all_stock_sectors.py` from the `backend` folder for live progress logs (stop Flask first if using SQLite), then remove that script when no longer needed. After bulk label changes, review **Parent sector mappings**.
+- **Market cap tier (Large / Mid / Small / Micro):** Uses three **cutoff values** (market cap in **Rs. Cr**) for the **100th, 250th, and 500th** company in Screener’s “Companies by Market Cap” list (market cap &gt; 0, sorted descending). **Fetch MC Thresholds** on **Settings → Stock Portfolio** loads those three values from Screener (editable in the same place). When adding a stock or using fetch-details, the app compares the company’s Screener **Market Cap** (Cr) to those cutoffs: **Large** if MC ≥ 100th cutoff, **Mid** if ≥ 250th and &lt; 100th, **Small** if ≥ 500th and &lt; 250th, **Micro** if &lt; 500th. If thresholds are not set, tier is left empty.
 
 ### Price Zone Alerts
 Alert thresholds changed to **±3%** (previously ±5%):

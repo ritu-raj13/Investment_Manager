@@ -11,6 +11,9 @@ const api = axios.create({
   withCredentials: true, // Important: enables cookies/sessions for authentication
 });
 
+// Screener-backed bulk jobs can run many minutes (delay per stock + HTTP)
+const LONG_REQUEST_MS = 900000; // 15 minutes
+
 // Add response interceptor to handle authentication errors
 api.interceptors.response.use(
   (response) => response,
@@ -40,8 +43,10 @@ export const stockAPI = {
   create: (data) => api.post('/stocks', data),
   update: (id, data) => api.put(`/stocks/${id}`, data),
   delete: (id) => api.delete(`/stocks/${id}`),
-  refreshPrices: () => api.post('/stocks/refresh-prices'),
-  refreshAlertStocks: () => api.post('/stocks/refresh-alert-stocks'),
+  refreshPrices: () =>
+    api.post('/stocks/refresh-prices', {}, { timeout: LONG_REQUEST_MS }),
+  refreshDayChange: () =>
+    api.post('/stocks/refresh-day-change', {}, { timeout: LONG_REQUEST_MS }),
   getGroups: () => api.get('/stocks/groups'),
   getSectors: () => api.get('/stocks/sectors'),
   fetchDetails: (symbol) => api.get(`/stocks/fetch-details/${symbol}`),
@@ -65,6 +70,7 @@ export const portfolioAPI = {
   getSummary: () => api.get('/portfolio/summary'),
   getSettings: () => api.get('/portfolio/settings'),
   updateSettings: (data) => api.put('/portfolio/settings', data),
+  refreshMcThresholds: () => api.post('/portfolio/settings/refresh-mc-thresholds'),
 };
 
 // Analytics API

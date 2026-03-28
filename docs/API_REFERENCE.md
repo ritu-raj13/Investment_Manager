@@ -189,13 +189,19 @@ Fetch stock details from web sources (Screener.in + price scrapers).
   "day_change_pct": 1.25,
   "status": "WATCHING",
   "in_holdings": false,
-  "quantity": null
+  "quantity": null,
+  "sector": "IT - Software",
+  "sector_peer_raw": "Information Technology | Information Technology | IT - Software | Computers - Software & Consulting",
+  "market_cap_cr": 864650.56,
+  "market_cap": "Large"
 }
 ```
 
 **Notes:**
 - `status` is "HOLD" if stock is in holdings, "WATCHING" otherwise
 - `in_holdings` and `quantity` indicate portfolio ownership
+- `sector` / `sector_peer_raw` / `market_cap_cr` come from Screener’s company page when available
+- `market_cap` is **Large**, **Mid**, **Small**, or **Micro** only when portfolio settings include the three MC threshold cutoffs (see **POST** `/portfolio/settings/refresh-mc-thresholds`); otherwise `null`
 
 **Errors:**
 - `404` - Could not fetch stock details
@@ -203,11 +209,11 @@ Fetch stock details from web sources (Screener.in + price scrapers).
 
 ---
 
-### 7. Refresh All Stock Prices
+### 7. Refresh stock prices
 
 **POST** `/stocks/refresh-prices`
 
-Refresh current prices for ALL tracked stocks.
+Refresh current prices for **all** tracked stocks (Stock Tracker UI: **Refresh Prices**).
 
 **Request Body:** None
 
@@ -223,51 +229,33 @@ Refresh current prices for ALL tracked stocks.
 
 **Process:**
 - Iterates through all stocks
-- Tries multiple sources (Google Finance → Moneycontrol → Investing.com → NSE API → Yahoo Finance)
-- Updates database with new prices
-- Also attempts to fetch day_change_pct (optional)
+- For **.NS** / **.BO**: Google Finance → Moneycontrol → Investing.com, then NSE API → Yahoo Finance if needed
+- Updates **`current_price`** and **`last_updated`** only (does **not** call Screener; **`day_change_pct`** is unchanged — use **POST** `/stocks/refresh-day-change` or fetch-details)
 
-**Time:** ~10-30 seconds for 10-20 stocks
+**Time:** Faster than when Screener ran on every symbol; scales with number of stocks and source latency
 
 ---
 
-### 8. Refresh Alert Stock Prices
+### 7b. Refresh 1D change from Screener
 
-**POST** `/stocks/refresh-alert-stocks`
+**POST** `/stocks/refresh-day-change`
 
-Refresh prices ONLY for stocks appearing in Analytics alerts.
-
-**Request Body:** None
+For each tracked **.NS** / **.BO** symbol, loads the Screener company page and updates **`day_change_pct`** when parsed. Uses a short delay between requests. Non-Indian symbols are skipped.
 
 **Response:**
 ```json
 {
-  "message": "Total: 8, Success: 7, Failed: 1",
-  "total": 8,
-  "updated": 7,
-  "failed": 1
+  "message": "1D change refreshed: 12 updated, 1 failed, 0 skipped (non-Indian symbols).",
+  "updated": 12,
+  "failed": 1,
+  "skipped": 0,
+  "errors_sample": ["FOO.NS: no day change parsed"]
 }
 ```
 
-**Alert Detection Logic:**
-- **Buy Zone Alerts** (for non-holdings):
-  - In buy zone: `buy_min <= price <= buy_max`
-  - Near buy zone: `buy_max < price <= buy_max * 1.03` (within 3%)
-- **Sell Zone Alerts** (for holdings):
-  - In sell zone: `sell_min <= price <= sell_max`
-  - Near sell zone: `sell_min * 0.97 <= price < sell_min` (within 3%)
-- **Average Zone Alerts** (for holdings):
-  - In average zone: `avg_min <= price <= avg_max`
-  - Near average zone: `±3%` of zone boundaries
-
-**Benefits:**
-- Faster than refreshing all stocks
-- Focuses on actionable alerts
-- Automatically identifies relevant stocks
-
 ---
 
-### 9. Get Stock Groups
+### 8. Get Stock Groups
 
 **GET** `/stocks/groups`
 
@@ -282,7 +270,7 @@ Get all unique group names from tracked stocks.
 
 ---
 
-### 10. Get Stock Sectors
+### 9. Get Stock Sectors
 
 **GET** `/stocks/sectors`
 
@@ -299,7 +287,7 @@ Get all unique sectors from tracked stocks.
 
 ## Portfolio API
 
-### 11. Get All Transactions
+### 10. Get All Transactions
 
 **GET** `/portfolio/transactions`
 
@@ -325,7 +313,7 @@ Get all portfolio transactions, ordered by date (newest first).
 
 ---
 
-### 12. Create Transaction
+### 11. Create Transaction
 
 **POST** `/portfolio/transactions`
 
@@ -370,7 +358,7 @@ Add a new buy or sell transaction.
 
 ---
 
-### 13. Update Transaction
+### 12. Update Transaction
 
 **PUT** `/portfolio/transactions/<transaction_id>`
 
@@ -391,7 +379,7 @@ Update an existing transaction.
 
 ---
 
-### 14. Delete Transaction
+### 13. Delete Transaction
 
 **DELETE** `/portfolio/transactions/<transaction_id>`
 
@@ -412,7 +400,7 @@ Delete a transaction.
 
 ---
 
-### 15. Get Portfolio Summary
+### 14. Get Portfolio Summary
 
 **GET** `/portfolio/summary`
 
@@ -464,7 +452,7 @@ Get portfolio summary with current holdings and P&L.
 
 ---
 
-### 16. Get Portfolio Settings
+### 15. Get Portfolio Settings
 
 **GET** `/portfolio/settings`
 
@@ -484,7 +472,7 @@ Get portfolio settings (manual total amount).
 
 ---
 
-### 17. Update Portfolio Settings
+### 16. Update Portfolio Settings
 
 **PUT** `/portfolio/settings`
 
@@ -501,11 +489,30 @@ Update portfolio settings.
 
 **Usage:** Set target portfolio size for % allocation calculations
 
+Portfolio settings may also include **`mc_threshold_rank_100`**, **`mc_threshold_rank_250`**, **`mc_threshold_rank_500`** (float, Rs. Cr) and **`mc_thresholds_updated_at`** (ISO timestamp). These can be set via **PUT** or populated by:
+
+**POST** `/portfolio/settings/refresh-mc-thresholds`
+
+Loads Screener’s public “Companies by Market Cap” screen (paginated), extracts MC at ranks 100, 250, and 500, and saves them to settings.
+
+**Response:**
+```json
+{
+  "message": "Market cap thresholds updated from Screener.",
+  "mc_threshold_rank_100": 12345.67,
+  "mc_threshold_rank_250": 5678.9,
+  "mc_threshold_rank_500": 1234.56,
+  "mc_thresholds_updated_at": "2026-03-28T12:00:00+00:00"
+}
+```
+
+**Errors:** `502` if fewer than 500 rows could be loaded from Screener.
+
 ---
 
 ## Analytics API
 
-### 18. Get Analytics Dashboard
+### 17. Get Analytics Dashboard
 
 **GET** `/analytics/dashboard`
 
@@ -614,7 +621,7 @@ Get comprehensive analytics data for dashboard.
 
 ## Data Management API
 
-### 19. Export Stocks to CSV
+### 18. Export Stocks to CSV
 
 **GET** `/export/stocks`
 
@@ -629,7 +636,7 @@ Export all tracked stocks to CSV file.
 
 ---
 
-### 20. Import Stocks from CSV
+### 19. Import Stocks from CSV
 
 **POST** `/import/stocks`
 
@@ -662,7 +669,7 @@ Import stocks from CSV file.
 
 ---
 
-### 21. Export Transactions to CSV
+### 20. Export Transactions to CSV
 
 **GET** `/export/transactions`
 
@@ -677,7 +684,7 @@ Export all transactions to CSV file.
 
 ---
 
-### 22. Import Transactions from CSV
+### 21. Import Transactions from CSV
 
 **POST** `/import/transactions`
 
@@ -708,7 +715,7 @@ Import transactions from CSV file.
 
 ---
 
-### 23. Backup Database
+### 22. Backup Database
 
 **GET** `/backup/database`
 
@@ -727,7 +734,7 @@ Download complete database backup.
 
 ---
 
-### 24. Restore Database
+### 23. Restore Database
 
 **POST** `/restore/database`
 
@@ -889,30 +896,13 @@ async function addTransaction(data) {
 }
 ```
 
-### Refresh Alert Stocks
-```javascript
-async function refreshAlertStocks() {
-  try {
-    const response = await axios.post(
-      `${API_BASE}/stocks/refresh-alert-stocks`
-    );
-    console.log(response.data.message);
-    // "Total: 8, Success: 7, Failed: 1"
-    return response.data;
-  } catch (error) {
-    console.error('Refresh failed:', error);
-    throw error;
-  }
-}
-```
-
 ---
 
 ## Changelog
 
 ### Version 1.0 (October 2025)
 - Initial API release
-- 22 endpoints covering all features
+- REST endpoints covering all features
 - Comprehensive documentation
 
 ---
