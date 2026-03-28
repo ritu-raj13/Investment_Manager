@@ -215,8 +215,8 @@ Investment_Manager/
 All in `frontend/src/services/api.js`:
 
 ```javascript
-export const stockAPI = { ... }            // 8 endpoints
-export const portfolioAPI = { ... }        // 7 endpoints
+export const stockAPI = { ... }            // CRUD, fetch-details, refresh prices/1D change, groups, sectors
+export const portfolioAPI = { ... }        // transactions, summary, settings + MC thresholds refresh
 export const mutualFundsAPI = { ... }      // 10 endpoints
 export const fixedDepositsAPI = { ... }    // 6 endpoints
 export const epfAPI = { ... }              // 5 endpoints
@@ -351,9 +351,9 @@ def calculate_holdings(transactions):
 
 ### API Endpoint Organization
 
-**Stock Tracking** (8 endpoints)
+**Stock Tracking** (7 endpoints)
 - CRUD operations for stocks
-- Price refresh (all/alert stocks)
+- Price refresh (all tracked stocks)
 - Auto-fetch stock details
 - Groups & sectors lists
 
@@ -809,25 +809,16 @@ Frontend renders:
   - Charts (Recharts)
 ```
 
-### 4. Alert Stock Refresh Flow
+### 4. Stock price refresh (all tracked)
 
 ```
-User clicks "Refresh Alert Stocks"
+User clicks "Refresh Prices" on Stock Tracker
     ↓
-Frontend → POST /api/stocks/refresh-alert-stocks
+Frontend → POST /api/stocks/refresh-prices
     ↓
-Backend:
-  1. Get all stocks & holdings
-  2. For each stock:
-     - Parse buy/sell/average zones
-     - Check if in/near zone (±3%)
-     - Consider holdings status
-  3. Collect alert stock IDs
-  4. Refresh ONLY alert stocks
+Backend updates every tracked symbol (scraper / NSE / yfinance fallback)
     ↓
 Returns: {total, updated, failed}
-    ↓
-Frontend displays simplified notification
 ```
 
 ---

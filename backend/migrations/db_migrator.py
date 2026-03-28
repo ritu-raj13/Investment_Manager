@@ -159,24 +159,35 @@ class DatabaseMigrator:
             return False
     
     def migrate_portfolio_settings_table(self):
-        """Ensure portfolio_settings table exists"""
+        """Ensure portfolio_settings table exists and has MC threshold columns"""
         print("\n[PORTFOLIO SETTINGS TABLE MIGRATION]")
         
-        if self.table_exists('portfolio_settings'):
-            print("  [OK] Portfolio settings table exists")
+        if not self.table_exists('portfolio_settings'):
+            try:
+                self.cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS portfolio_settings (
+                        id INTEGER PRIMARY KEY,
+                        total_amount FLOAT DEFAULT 0.0,
+                        updated_at DATETIME
+                    )
+                ''')
+                print("  [OK] Created portfolio_settings table")
+            except sqlite3.Error as e:
+                print(f"  [ERROR] Failed to create portfolio_settings table: {e}")
             return
-        
-        try:
-            self.cursor.execute('''
-                CREATE TABLE IF NOT EXISTS portfolio_settings (
-                    id INTEGER PRIMARY KEY,
-                    total_amount FLOAT DEFAULT 0.0,
-                    updated_at DATETIME
-                )
-            ''')
-            print("  [OK] Created portfolio_settings table")
-        except sqlite3.Error as e:
-            print(f"  [ERROR] Failed to create portfolio_settings table: {e}")
+
+        print("  [OK] Portfolio settings table exists")
+        changes = False
+        if self.add_column_if_missing('portfolio_settings', 'mc_threshold_rank_100', 'FLOAT'):
+            changes = True
+        if self.add_column_if_missing('portfolio_settings', 'mc_threshold_rank_250', 'FLOAT'):
+            changes = True
+        if self.add_column_if_missing('portfolio_settings', 'mc_threshold_rank_500', 'FLOAT'):
+            changes = True
+        if self.add_column_if_missing('portfolio_settings', 'mc_thresholds_updated_at', 'DATETIME'):
+            changes = True
+        if not changes:
+            print("  [OK] portfolio_settings MC threshold columns up to date")
     
     def migrate_mutual_funds_table(self):
         """Migrate mutual_funds table to make scheme_code optional"""

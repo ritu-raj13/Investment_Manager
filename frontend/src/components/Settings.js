@@ -30,6 +30,7 @@ import StorageIcon from '@mui/icons-material/Storage';
 import DescriptionIcon from '@mui/icons-material/Description';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SaveIcon from '@mui/icons-material/Save';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import SecurityIcon from '@mui/icons-material/Security';
 import { dataAPI, portfolioAPI, globalSettingsAPI } from '../services/api';
@@ -62,8 +63,14 @@ const Settings = () => {
     // Overall limits
     max_stocks_per_sector: 2,
     max_total_stocks: 30,
+    // Screener MC cutoffs (Rs. Cr) — fetch from Screener on Stock Portfolio tab
+    mc_threshold_rank_100: '',
+    mc_threshold_rank_250: '',
+    mc_threshold_rank_500: '',
+    mc_thresholds_updated_at: '',
   });
   const [configLoading, setConfigLoading] = useState(false);
+  const [mcThresholdsLoading, setMcThresholdsLoading] = useState(false);
   
   // Global Settings (Phase 3)
   const [globalSettings, setGlobalSettings] = useState({
@@ -115,6 +122,13 @@ const Settings = () => {
         // Overall limits
         max_stocks_per_sector: response.data.max_stocks_per_sector || 2,
         max_total_stocks: response.data.max_total_stocks || 30,
+        mc_threshold_rank_100:
+          response.data.mc_threshold_rank_100 != null ? response.data.mc_threshold_rank_100 : '',
+        mc_threshold_rank_250:
+          response.data.mc_threshold_rank_250 != null ? response.data.mc_threshold_rank_250 : '',
+        mc_threshold_rank_500:
+          response.data.mc_threshold_rank_500 != null ? response.data.mc_threshold_rank_500 : '',
+        mc_thresholds_updated_at: response.data.mc_thresholds_updated_at || '',
       });
     } catch (error) {
       showSnackbar('Failed to load configuration', 'error');
@@ -150,10 +164,34 @@ const Settings = () => {
     setGlobalSettings((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleFetchMcThresholds = async () => {
+    try {
+      setMcThresholdsLoading(true);
+      const response = await portfolioAPI.refreshMcThresholds();
+      showSnackbar(response.data?.message || 'Market cap thresholds updated from Screener', 'success');
+      await loadConfiguration();
+    } catch (error) {
+      showSnackbar(error.response?.data?.error || 'Failed to fetch market cap thresholds', 'error');
+    } finally {
+      setMcThresholdsLoading(false);
+    }
+  };
+
   const handleSaveConfiguration = async () => {
     try {
       setConfigLoading(true);
-      await portfolioAPI.updateSettings(config);
+      const numOrNull = (v) => {
+        if (v === '' || v == null) return null;
+        const n = parseFloat(v);
+        return Number.isFinite(n) ? n : null;
+      };
+      const payload = {
+        ...config,
+        mc_threshold_rank_100: numOrNull(config.mc_threshold_rank_100),
+        mc_threshold_rank_250: numOrNull(config.mc_threshold_rank_250),
+        mc_threshold_rank_500: numOrNull(config.mc_threshold_rank_500),
+      };
+      await portfolioAPI.updateSettings(payload);
       showSnackbar('Configuration saved successfully!', 'success');
       // Reload to reflect changes
       setTimeout(() => window.location.reload(), 1500);
@@ -494,6 +532,75 @@ const Settings = () => {
                   shrink: true,
                 }}
                 helperText="Target date for projected amount"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Alert severity="info" sx={{ bgcolor: 'rgba(255,255,255,0.08)' }}>
+                <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+                  Market cap tier cutoffs (Rs. Cr)
+                </Typography>
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  Use <strong>Fetch MC Thresholds</strong> below to load the 100th, 250th, and 500th company market caps
+                  from Screener (sorted by market cap). Large / Mid / Small / Micro are assigned by comparing each
+                  stock&apos;s market cap to these values. You can edit the numbers manually if needed.
+                </Typography>
+                {config.mc_thresholds_updated_at && (
+                  <Typography variant="caption" display="block" sx={{ opacity: 0.9 }}>
+                    Last updated from Screener: {new Date(config.mc_thresholds_updated_at).toLocaleString()}
+                  </Typography>
+                )}
+              </Alert>
+            </Grid>
+            <Grid item xs={12}>
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<RefreshIcon />}
+                onClick={handleFetchMcThresholds}
+                disabled={mcThresholdsLoading || configLoading}
+                sx={{ borderRadius: 2 }}
+              >
+                {mcThresholdsLoading ? 'Fetching…' : 'Fetch MC Thresholds'}
+              </Button>
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label="100th stock MC (Cr)"
+                type="number"
+                value={config.mc_threshold_rank_100}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, mc_threshold_rank_100: e.target.value }))
+                }
+                inputProps={{ min: 0, step: 0.01 }}
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label="250th stock MC (Cr)"
+                type="number"
+                value={config.mc_threshold_rank_250}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, mc_threshold_rank_250: e.target.value }))
+                }
+                inputProps={{ min: 0, step: 0.01 }}
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label="500th stock MC (Cr)"
+                type="number"
+                value={config.mc_threshold_rank_500}
+                onChange={(e) =>
+                  setConfig((prev) => ({ ...prev, mc_threshold_rank_500: e.target.value }))
+                }
+                inputProps={{ min: 0, step: 0.01 }}
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>

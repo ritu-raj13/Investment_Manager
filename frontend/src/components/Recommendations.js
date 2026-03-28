@@ -21,6 +21,7 @@ import {
   AccordionSummary,
   AccordionDetails,
   Divider,
+  Snackbar,
 } from '@mui/material';
 import {
   TrendingUp as TrendingUpIcon,
@@ -33,30 +34,57 @@ import {
   ExpandMore as ExpandMoreIcon,
   RemoveCircle as RemoveCircleIcon,
   AddCircle as AddCircleIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
-import { recommendationsAPI } from '../services/api';
+import { recommendationsAPI, stockAPI } from '../services/api';
+import StockEditDialog from './StockEditDialog';
 
 const Recommendations = () => {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editStock, setEditStock] = useState(null);
+  const [editDialogMountKey, setEditDialogMountKey] = useState(0);
+  const [editSnackbar, setEditSnackbar] = useState({ open: false, message: '', severity: 'error' });
 
   useEffect(() => {
     fetchRecommendations();
   }, []);
 
-  const fetchRecommendations = async () => {
+  const fetchRecommendations = async (options = {}) => {
+    const silent = options.silent === true;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const response = await recommendationsAPI.getDashboard();
       setData(response.data);
       setError(null);
     } catch (err) {
-      setError('Failed to load recommendations');
+      if (!silent) setError('Failed to load recommendations');
       console.error('Recommendations error:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
+  };
+
+  const handleEditZoneStock = async (stockId) => {
+    try {
+      const response = await stockAPI.getById(stockId);
+      setEditDialogMountKey((k) => k + 1);
+      setEditStock(response.data);
+      setEditDialogOpen(true);
+    } catch (err) {
+      setEditSnackbar({
+        open: true,
+        message: err.response?.data?.error || 'Failed to load stock for editing',
+        severity: 'error',
+      });
+    }
+  };
+
+  const handleCloseEditDialog = () => {
+    setEditDialogOpen(false);
+    setEditStock(null);
   };
 
   const formatCurrency = (value) => {
@@ -93,6 +121,16 @@ const Recommendations = () => {
   // Calculate rebalancing alert counts
   const sectorAlerts = rebalancing.sector_rebalancing?.filter(s => s.status === 'overweight' || s.status === 'moderate_overweight').length || 0;
   const marketCapAlerts = rebalancing.market_cap_rebalancing?.filter(mc => mc.status === 'overweight' || mc.status === 'moderate_overweight').length || 0;
+  const reduceCount = rebalancing.stocks_to_reduce?.length || 0;
+  const addCount = rebalancing.stocks_to_add?.length || 0;
+  const concentrationAlertCount = sectorAlerts + marketCapAlerts;
+  const parentSectorWarningCount = rebalancing.parent_sector_warnings?.length || 0;
+  const hasRebalancingAlerts =
+    reduceCount > 0 ||
+    addCount > 0 ||
+    sectorAlerts > 0 ||
+    marketCapAlerts > 0 ||
+    parentSectorWarningCount > 0;
 
   return (
     <Box>
@@ -163,48 +201,57 @@ const Recommendations = () => {
           </Card>
         </Grid>
 
-        {/* Rebalancing Alerts Combined */}
+        {/* Rebalancing Alerts Combined (layout mirrors Price Zone Alerts card) */}
         <Grid item xs={12} md={6}>
-          <Card sx={{ 
-            borderRadius: 3, 
-            bgcolor: (sectorAlerts > 0 || marketCapAlerts > 0) ? 'rgba(251, 191, 36, 0.9)' : 'rgba(34, 197, 94, 0.9)', 
+          <Card sx={{
+            borderRadius: 3,
+            bgcolor: hasRebalancingAlerts ? 'warning.dark' : 'success.dark',
             color: 'white',
             boxShadow: 3,
-            height: '100%'
+            height: '100%',
           }}>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Typography variant="h6" fontWeight="bold" sx={{ color: 'white' }}>
                   Rebalancing Alerts
                 </Typography>
-                <InfoOutlinedIcon sx={{ fontSize: 32 }} />
+                <NotificationsActiveIcon sx={{ fontSize: 32 }} />
               </Box>
               <Grid container spacing={2}>
-                <Grid item xs={6}>
+                <Grid item xs={4}>
                   <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }} display="block">
-                      Sector
-                    </Typography>
+                    <RemoveCircleIcon sx={{ fontSize: 28, mb: 0.5 }} />
                     <Typography variant="h3" fontWeight="bold">
-                      {sectorAlerts}
+                      {reduceCount}
                     </Typography>
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                      over-allocated
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                      Reduce
                     </Typography>
                   </Box>
                 </Grid>
-                <Grid item xs={6}>
+                <Grid item xs={4}>
                   <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }} display="block">
-                      Market Cap
-                    </Typography>
+                    <AddCircleIcon sx={{ fontSize: 28, mb: 0.5 }} />
                     <Typography variant="h3" fontWeight="bold">
-                      {marketCapAlerts}
+                      {addCount}
                     </Typography>
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                      over-allocated
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                      Add
                     </Typography>
                   </Box>
+                </Grid>
+                <Grid item xs={4}>
+                  <Tooltip title="Sector and market cap overweight flags (moderate or high concentration)">
+                    <Box sx={{ textAlign: 'center', cursor: 'default' }}>
+                      <TrendingUpIcon sx={{ fontSize: 28, mb: 0.5 }} />
+                      <Typography variant="h3" fontWeight="bold">
+                        {concentrationAlertCount}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                        Concentration
+                      </Typography>
+                    </Box>
+                  </Tooltip>
                 </Grid>
               </Grid>
             </CardContent>
@@ -241,10 +288,19 @@ const Recommendations = () => {
                     </Box>
                     <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
                       {action_items.in_buy_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.in_buy_zone.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
+                        <Box key={stock.id ?? idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.in_buy_zone.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                            <Typography variant="body1" fontWeight="bold">
+                              {stock.symbol.replace('.NS', '').replace('.BO', '')}
+                            </Typography>
+                            {stock.id != null && (
+                              <Tooltip title="Edit tracking">
+                                <IconButton size="small" onClick={() => handleEditZoneStock(stock.id)} sx={{ color: 'inherit' }}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
                           <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
                             {stock.name} • {stock.sector}
                           </Typography>
@@ -277,10 +333,19 @@ const Recommendations = () => {
                     </Box>
                     <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
                       {action_items.in_sell_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.in_sell_zone.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
+                        <Box key={stock.id ?? idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.in_sell_zone.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                            <Typography variant="body1" fontWeight="bold">
+                              {stock.symbol.replace('.NS', '').replace('.BO', '')}
+                            </Typography>
+                            {stock.id != null && (
+                              <Tooltip title="Edit tracking">
+                                <IconButton size="small" onClick={() => handleEditZoneStock(stock.id)} sx={{ color: 'inherit' }}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
                           <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
                             {stock.name} • {stock.sector}
                           </Typography>
@@ -313,10 +378,19 @@ const Recommendations = () => {
                     </Box>
                     <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
                       {action_items.near_buy_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.near_buy_zone.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
+                        <Box key={stock.id ?? idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.near_buy_zone.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                            <Typography variant="body1" fontWeight="bold">
+                              {stock.symbol.replace('.NS', '').replace('.BO', '')}
+                            </Typography>
+                            {stock.id != null && (
+                              <Tooltip title="Edit tracking">
+                                <IconButton size="small" onClick={() => handleEditZoneStock(stock.id)}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
                           <Typography variant="caption" color="text.secondary">
                             {stock.name}
                           </Typography>
@@ -352,10 +426,19 @@ const Recommendations = () => {
                     </Box>
                     <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
                       {action_items.near_sell_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.near_sell_zone.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
+                        <Box key={stock.id ?? idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.near_sell_zone.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                            <Typography variant="body1" fontWeight="bold">
+                              {stock.symbol.replace('.NS', '').replace('.BO', '')}
+                            </Typography>
+                            {stock.id != null && (
+                              <Tooltip title="Edit tracking">
+                                <IconButton size="small" onClick={() => handleEditZoneStock(stock.id)}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
                           <Typography variant="caption" color="text.secondary">
                             {stock.name}
                           </Typography>
@@ -391,10 +474,19 @@ const Recommendations = () => {
                     </Box>
                     <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
                       {action_items.in_average_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.in_average_zone.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
+                        <Box key={stock.id ?? idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.in_average_zone.length - 1 ? '1px solid rgba(255,255,255,0.2)' : 'none' }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                            <Typography variant="body1" fontWeight="bold">
+                              {stock.symbol.replace('.NS', '').replace('.BO', '')}
+                            </Typography>
+                            {stock.id != null && (
+                              <Tooltip title="Edit tracking">
+                                <IconButton size="small" onClick={() => handleEditZoneStock(stock.id)} sx={{ color: 'inherit' }}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
                           <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
                             {stock.name} • {stock.sector}
                           </Typography>
@@ -427,10 +519,19 @@ const Recommendations = () => {
                     </Box>
                     <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
                       {action_items.near_average_zone.map((stock, idx) => (
-                        <Box key={idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.near_average_zone.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
-                          <Typography variant="body1" fontWeight="bold">
-                            {stock.symbol.replace('.NS', '').replace('.BO', '')}
-                          </Typography>
+                        <Box key={stock.id ?? idx} sx={{ mb: 1.5, pb: 1.5, borderBottom: idx < action_items.near_average_zone.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                            <Typography variant="body1" fontWeight="bold">
+                              {stock.symbol.replace('.NS', '').replace('.BO', '')}
+                            </Typography>
+                            {stock.id != null && (
+                              <Tooltip title="Edit tracking">
+                                <IconButton size="small" onClick={() => handleEditZoneStock(stock.id)}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
                           <Typography variant="caption" color="text.secondary">
                             {stock.name}
                           </Typography>
@@ -882,6 +983,25 @@ const Recommendations = () => {
           </Alert>
         )}
       </Paper>
+
+      <StockEditDialog
+        key={editDialogMountKey}
+        open={editDialogOpen}
+        onClose={handleCloseEditDialog}
+        stock={editStock}
+        onSuccess={() => fetchRecommendations({ silent: true })}
+      />
+
+      <Snackbar
+        open={editSnackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setEditSnackbar((s) => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert severity={editSnackbar.severity} sx={{ width: '100%' }} onClose={() => setEditSnackbar((s) => ({ ...s, open: false }))}>
+          {editSnackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

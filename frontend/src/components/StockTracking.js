@@ -6,10 +6,6 @@ import {
   Button,
   IconButton,
   Chip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   TextField,
   Select,
   MenuItem,
@@ -21,7 +17,7 @@ import {
   Card,
   CardContent,
   Collapse,
-  Autocomplete,
+  CircularProgress,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -31,41 +27,25 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
-import { stockAPI, sectorAPI } from '../services/api';
+import { stockAPI } from '../services/api';
+import StockEditDialog from './StockEditDialog';
 
 const StockTracking = () => {
   const [stocks, setStocks] = useState([]);
   const [groups, setGroups] = useState([]);
-  const [sectors, setSectors] = useState([]);
-  const [parentSectors, setParentSectors] = useState([]);
-  const [sectorMappings, setSectorMappings] = useState({});
   const [selectedGroup, setSelectedGroup] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [openDialog, setOpenDialog] = useState(false);
   const [editingStock, setEditingStock] = useState(null);
+  const [stockDialogMountKey, setStockDialogMountKey] = useState(0);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [expandedGroups, setExpandedGroups] = useState({});
-  const [fetchingDetails, setFetchingDetails] = useState(false);
-  const [formData, setFormData] = useState({
-    symbol: '',
-    name: '',
-    group_name: '',
-    sector: '',
-    market_cap: '',
-    current_price: '',
-    day_change_pct: null,
-    buy_zone_price: '',
-    sell_zone_price: '',
-    average_zone_price: '',
-    status: 'WATCHING',
-    notes: '',
-  });
+  /** 'prices' | 'dayChange' while a bulk job is in flight */
+  const [bulkRefreshing, setBulkRefreshing] = useState(null);
 
   useEffect(() => {
     fetchStocks();
     fetchGroups();
-    fetchSectors();
-    fetchParentSectors();
   }, []);
 
   useEffect(() => {
@@ -95,140 +75,15 @@ const StockTracking = () => {
     }
   };
 
-  const fetchSectors = async () => {
-    try {
-      const response = await stockAPI.getSectors();
-      setSectors(response.data);
-    } catch (error) {
-      console.error('Error fetching sectors:', error);
-    }
-  };
-
-  const fetchParentSectors = async () => {
-    try {
-      const [mappingsRes, parentsRes] = await Promise.all([
-        sectorAPI.getParentMappings(),
-        sectorAPI.getParentSectorsList()
-      ]);
-      
-      // Create a map of child sector -> parent sector
-      const mappings = {};
-      mappingsRes.data.forEach(m => {
-        mappings[m.sector_name] = m.parent_sector;
-      });
-      setSectorMappings(mappings);
-      setParentSectors(parentsRes.data);
-    } catch (error) {
-      console.error('Error fetching parent sectors:', error);
-    }
-  };
-
   const handleOpenDialog = (stock = null) => {
-    if (stock) {
-      setEditingStock(stock);
-      setFormData({
-        symbol: stock.symbol,
-        name: stock.name,
-        group_name: stock.group_name || '',
-        sector: stock.sector || '',
-        market_cap: stock.market_cap || '',
-        buy_zone_price: stock.buy_zone_price || '',
-        sell_zone_price: stock.sell_zone_price || '',
-        average_zone_price: stock.average_zone_price || '',
-        status: stock.status || 'WATCHING',
-        current_price: stock.current_price || '',
-        notes: stock.notes || '',
-      });
-    } else {
-      setEditingStock(null);
-      setFormData({
-        symbol: '',
-        name: '',
-        group_name: '',
-        sector: '',
-        market_cap: '',
-        current_price: '',
-        day_change_pct: null,
-        buy_zone_price: '',
-        sell_zone_price: '',
-        average_zone_price: '',
-        status: 'WATCHING',
-        notes: '',
-      });
-    }
+    setStockDialogMountKey((k) => k + 1);
+    setEditingStock(stock || null);
     setOpenDialog(true);
-  };
-
-  const handleSymbolBlur = async () => {
-    // Auto-fetch stock details when user enters symbol
-    const symbol = formData.symbol.trim().toUpperCase();
-    
-    // Only fetch if symbol ends with .NS or .BO and name is empty (new stock)
-    if (!editingStock && symbol && (symbol.endsWith('.NS') || symbol.endsWith('.BO')) && !formData.name) {
-      setFetchingDetails(true);
-      try {
-        const response = await stockAPI.fetchDetails(symbol);
-        const details = response.data;
-        
-        // Auto-populate fields
-        setFormData(prev => ({
-          ...prev,
-          symbol: symbol,
-          name: details.name || prev.name,
-          current_price: details.price || prev.current_price,
-          day_change_pct: details.day_change_pct !== undefined ? details.day_change_pct : prev.day_change_pct,
-          status: details.status || prev.status, // WATCHING or HOLD based on holdings
-        }));
-        
-        if (details.in_holdings) {
-          showSnackbar(`Stock found in holdings (${details.quantity} shares) - Status set to HOLD`, 'info');
-        } else {
-          showSnackbar('Stock details fetched successfully', 'success');
-        }
-      } catch (error) {
-        // Silently fail or show optional warning
-        if (error.response?.status === 404) {
-          showSnackbar('Could not auto-fetch details. Please enter manually.', 'warning');
-        }
-      } finally {
-        setFetchingDetails(false);
-      }
-    }
   };
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
     setEditingStock(null);
-  };
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async () => {
-    // Validate required fields
-    if (!formData.symbol || !formData.name) {
-      showSnackbar('Stock symbol and name are required', 'error');
-      return;
-    }
-
-    try {
-      if (editingStock) {
-        await stockAPI.update(editingStock.id, formData);
-        showSnackbar('Stock updated successfully', 'success');
-      } else {
-        await stockAPI.create(formData);
-        showSnackbar('Stock added successfully', 'success');
-      }
-      fetchStocks();
-      fetchGroups();
-      fetchSectors();
-      handleCloseDialog();
-    } catch (error) {
-      showSnackbar(error.response?.data?.error || 'Error saving stock', 'error');
-      console.error('Error saving stock:', error);
-    }
   };
 
   const handleDelete = async (id) => {
@@ -245,22 +100,36 @@ const StockTracking = () => {
   };
 
   const handleRefreshPrices = async () => {
+    setBulkRefreshing('prices');
     try {
       const response = await stockAPI.refreshPrices();
       showSnackbar(response.data.message, 'success');
       fetchStocks();
     } catch (error) {
-      showSnackbar('Error refreshing prices', 'error');
+      const msg =
+        error.code === 'ECONNABORTED'
+          ? 'Refresh timed out — try again or fewer stocks'
+          : 'Error refreshing prices';
+      showSnackbar(error.response?.data?.error || msg, 'error');
+    } finally {
+      setBulkRefreshing(null);
     }
   };
 
-  const handleRefreshAlertStocks = async () => {
+  const handleRefreshDayChange = async () => {
+    setBulkRefreshing('dayChange');
     try {
-      const response = await stockAPI.refreshAlertStocks();
-      showSnackbar(response.data.message, 'success');
+      const response = await stockAPI.refreshDayChange();
+      showSnackbar(response.data.message || '1D change refreshed', 'success');
       fetchStocks();
     } catch (error) {
-      showSnackbar(error.response?.data?.error || 'Error refreshing alert stocks', 'error');
+      const msg =
+        error.code === 'ECONNABORTED'
+          ? 'Request timed out — many stocks can take several minutes'
+          : 'Error refreshing 1D change';
+      showSnackbar(error.response?.data?.error || msg, 'error');
+    } finally {
+      setBulkRefreshing(null);
     }
   };
 
@@ -387,23 +256,37 @@ const StockTracking = () => {
             )}
           </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
           <Button
-            variant="contained"
-            color="warning"
-            startIcon={<RefreshIcon />}
-            onClick={handleRefreshAlertStocks}
+            variant="outlined"
+            startIcon={
+              bulkRefreshing === 'prices' ? (
+                <CircularProgress size={18} color="inherit" />
+              ) : (
+                <RefreshIcon />
+              )
+            }
+            onClick={handleRefreshPrices}
+            disabled={bulkRefreshing !== null}
             sx={{ borderRadius: 2 }}
           >
-            Refresh Alert Stocks
+            {bulkRefreshing === 'prices' ? 'Refreshing prices…' : 'Refresh Prices'}
           </Button>
           <Button
             variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={handleRefreshPrices}
+            color="secondary"
+            startIcon={
+              bulkRefreshing === 'dayChange' ? (
+                <CircularProgress size={18} color="inherit" />
+              ) : (
+                <RefreshIcon />
+              )
+            }
+            onClick={handleRefreshDayChange}
+            disabled={bulkRefreshing !== null}
             sx={{ borderRadius: 2 }}
           >
-            Refresh All
+            {bulkRefreshing === 'dayChange' ? 'Refreshing 1D…' : 'Refresh 1D Change'}
           </Button>
           <Button
             variant="contained"
@@ -683,203 +566,16 @@ const StockTracking = () => {
         </Paper>
       )}
 
-      {/* Add/Edit Dialog */}
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
-          {editingStock ? 'Edit Stock' : 'Add New Stock'}
-        </DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 0.5 }}>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Stock Symbol *"
-                name="symbol"
-                value={formData.symbol}
-                onChange={handleInputChange}
-                onBlur={handleSymbolBlur}
-                disabled={!!editingStock || fetchingDetails}
-                placeholder="e.g., RELIANCE.NS"
-                helperText={fetchingDetails ? "Fetching stock details..." : "Enter symbol with .NS or .BO suffix"}
-                required
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Company Name"
-                name="name"
-                value={formData.name}
-                onChange={handleInputChange}
-                placeholder="Auto-fetched from symbol"
-                helperText="Leave blank to auto-fetch"
-                disabled={fetchingDetails}
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <Autocomplete
-                freeSolo
-                options={groups}
-                value={formData.group_name}
-                onChange={(event, newValue) => {
-                  setFormData(prev => ({ ...prev, group_name: newValue || '' }));
-                }}
-                onInputChange={(event, newInputValue) => {
-                  setFormData(prev => ({ ...prev, group_name: newInputValue }));
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Group/Category"
-                    placeholder="e.g., Bull Run"
-                    helperText="Select existing or type new"
-                  />
-                )}
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <FormControl fullWidth>
-                <InputLabel>Market Cap</InputLabel>
-                <Select
-                  name="market_cap"
-                  value={formData.market_cap}
-                  label="Market Cap"
-                  onChange={handleInputChange}
-                >
-                  <MenuItem value="">None</MenuItem>
-                  <MenuItem value="Large">Large</MenuItem>
-                  <MenuItem value="Mid">Mid</MenuItem>
-                  <MenuItem value="Small">Small</MenuItem>
-                  <MenuItem value="Micro">Micro</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <Autocomplete
-                freeSolo
-                options={sectors}
-                value={formData.sector}
-                onChange={(event, newValue) => {
-                  setFormData(prev => ({ ...prev, sector: newValue || '' }));
-                }}
-                onInputChange={(event, newInputValue) => {
-                  setFormData(prev => ({ ...prev, sector: newInputValue }));
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Sector"
-                    placeholder="e.g., FMCG, Auto"
-                    helperText={
-                      formData.sector && sectorMappings[formData.sector]
-                        ? `Parent: ${sectorMappings[formData.sector]}`
-                        : "Select existing or type new"
-                    }
-                  />
-                )}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Current Price (Optional)"
-                name="current_price"
-                type="number"
-                value={formData.current_price}
-                onChange={handleInputChange}
-                placeholder="Auto-fetched from Screener.in"
-                helperText={editingStock ? "Auto-updates on Refresh Prices" : "Auto-fetches from symbol"}
-                disabled={fetchingDetails}
-              />
-              {formData.day_change_pct !== null && formData.day_change_pct !== undefined && (
-                <Box sx={{ mt: 1 }}>
-                  <Chip
-                    label={`1D Change: ${formData.day_change_pct >= 0 ? '+' : ''}${formData.day_change_pct.toFixed(2)}%`}
-                    size="small"
-                    sx={{
-                      bgcolor: formData.day_change_pct >= 0 ? '#22c55e' : '#ef4444',
-                      color: 'white',
-                      fontWeight: 'bold'
-                    }}
-                  />
-                </Box>
-              )}
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth disabled={fetchingDetails}>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  name="status"
-                  value={formData.status}
-                  label="Status"
-                  onChange={handleInputChange}
-                >
-                  <MenuItem value="WATCHING">Watching</MenuItem>
-                  <MenuItem value="HOLD">Holding</MenuItem>
-                </Select>
-                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
-                  {!editingStock && "Auto-set: WATCHING (not in portfolio) or HOLDING (in portfolio)"}
-                </Typography>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Buy Zone"
-                name="buy_zone_price"
-                value={formData.buy_zone_price}
-                onChange={handleInputChange}
-                placeholder="250-300 or 275"
-                helperText="Range or exact price"
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Average Zone"
-                name="average_zone_price"
-                value={formData.average_zone_price}
-                onChange={handleInputChange}
-                placeholder="150-180 or 165"
-                helperText="Range or exact price"
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Sell Zone"
-                name="sell_zone_price"
-                value={formData.sell_zone_price}
-                onChange={handleInputChange}
-                placeholder="700-800 or 750"
-                helperText="Range or exact price"
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Notes"
-                name="notes"
-                value={formData.notes}
-                onChange={handleInputChange}
-                placeholder="Add your analysis, chart patterns, reasons..."
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions sx={{ p: 2.5 }}>
-          <Button onClick={handleCloseDialog} sx={{ borderRadius: 2 }}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleSubmit} 
-            variant="contained" 
-            sx={{ borderRadius: 2, px: 4 }}
-          >
-            {editingStock ? 'Save' : 'Add Stock'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <StockEditDialog
+        key={stockDialogMountKey}
+        open={openDialog}
+        onClose={handleCloseDialog}
+        stock={editingStock}
+        onSuccess={() => {
+          fetchStocks();
+          fetchGroups();
+        }}
+      />
 
       {/* Snackbar for notifications */}
       <Snackbar

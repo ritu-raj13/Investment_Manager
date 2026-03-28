@@ -61,7 +61,6 @@ testing/
 - ✅ GET `/api/stocks/sectors` - Get sectors
 - ✅ POST `/api/stocks/refresh-prices` - Refresh prices
 - ✅ GET `/api/stocks/fetch-details/<symbol>` - Fetch details
-- ✅ POST `/api/stocks/refresh-alert-stocks` - Refresh alerts
 
 ### 3. Portfolio Transactions (6 endpoints)
 - ✅ GET `/api/portfolio/transactions` - List transactions
