@@ -7,7 +7,7 @@ from flask_limiter.util import get_remote_address
 from datetime import datetime, timezone
 import time
 import yfinance as yf
-from typing import List, Dict
+from typing import List, Dict, Optional
 import os
 import json
 import pandas as pd
@@ -34,13 +34,47 @@ from utils import (
     calculate_portfolio_xirr,
     auto_backup_on_startup
 )
-from services import get_nse_price, get_scraped_price, get_stock_details
+from services import get_nse_price, get_nse_day_change_pct, get_scraped_price, get_stock_details
 from services.mf_api import fetch_mf_nav_by_name, fetch_mf_nav, get_mf_scheme_details
 from services.screener_parser import (
     classify_market_cap_tier,
     fetch_market_cap_rank_thresholds,
     fetch_company_supplement,
 )
+
+
+def _yahoo_history_last_close(symbol: str) -> Optional[float]:
+    """Last daily close from Yahoo; few requests to reduce rate-limit noise vs many short periods."""
+    try:
+        t = yf.Ticker(symbol)
+        hist = t.history(period='1mo', auto_adjust=False)
+        if hist is None or hist.empty:
+            hist = t.history(period='3mo', auto_adjust=False)
+        if hist is not None and not hist.empty:
+            return round(float(hist['Close'].iloc[-1]), 2)
+    except Exception as e:
+        print(f"[WARN] Yahoo price failed for {symbol}: {e}")
+    return None
+
+
+def _yahoo_day_change_pct(symbol: str) -> Optional[float]:
+    """Prior row vs last close % from daily bars (fallback when Screener has no 1D %)."""
+    try:
+        t = yf.Ticker(symbol)
+        hist = t.history(period='10d', auto_adjust=False)
+        if hist is None or hist.empty or len(hist) < 2:
+            hist = t.history(period='3mo', auto_adjust=False)
+        if hist is None or hist.empty or len(hist) < 2:
+            return None
+        c = hist['Close'].astype(float)
+        last = float(c.iloc[-1])
+        prev = float(c.iloc[-2])
+        if prev > 0:
+            return (last - prev) / prev * 100.0
+    except Exception as e:
+        print(f"[WARN] Yahoo 1D%% failed for {symbol}: {e}")
+    return None
+
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -1016,41 +1050,29 @@ def create_stock():
     
     # Fetch current price automatically (only if still not available)
     if not stock.current_price:
-        # Strategy: Try multiple sources in order
-        # 1. Web Scraping (most reliable for Indian stocks)
-        # 2. NSE India API
-        # 3. Yahoo Finance API
-        
+        # Indian: NSE first (stable JSON), then HTML scrapers, then Yahoo.
         if stock.symbol.endswith('.NS') or stock.symbol.endswith('.BO'):
-            # Try web scraping first (Google Finance, Moneycontrol, etc.)
             try:
-                price = get_scraped_price(stock.symbol)
+                price = get_nse_price(stock.symbol)
                 if price:
                     stock.current_price = round(price, 2)
-                    print(f"[OK] Web Scraper: Fetched {stock.symbol}: Rs.{stock.current_price}")
-            except Exception as e:
-                print(f"[WARN] Web scraper failed for {stock.symbol}: {str(e)}")
-            
-            # Fallback to NSE API
+                    print(f"[OK] NSE API: Fetched {stock.symbol}: Rs.{stock.current_price}")
+            except Exception:
+                print(f"[WARN] NSE API failed for {stock.symbol}")
             if not stock.current_price:
                 try:
-                    price = get_nse_price(stock.symbol)
+                    price = get_scraped_price(stock.symbol)
                     if price:
                         stock.current_price = round(price, 2)
-                        print(f"[OK] NSE API: Fetched {stock.symbol}: Rs.{stock.current_price}")
+                        print(f"[OK] Web Scraper: Fetched {stock.symbol}: Rs.{stock.current_price}")
                 except Exception as e:
-                    print(f"[WARN] NSE API failed for {stock.symbol}")
+                    print(f"[WARN] Web scraper failed for {stock.symbol}: {str(e)}")
         
-        # Fallback to Yahoo Finance for any stock
         if not stock.current_price:
-            try:
-                ticker = yf.Ticker(stock.symbol)
-                info = ticker.history(period='1d')
-                if not info.empty:
-                    stock.current_price = round(info['Close'].iloc[-1], 2)
-                    print(f"[OK] Yahoo Finance: Fetched {stock.symbol}: Rs.{stock.current_price}")
-            except Exception as e:
-                print(f"[WARN] Yahoo Finance failed for {stock.symbol}")
+            y_close = _yahoo_history_last_close(stock.symbol)
+            if y_close is not None:
+                stock.current_price = y_close
+                print(f"[OK] Yahoo Finance: Fetched {stock.symbol}: Rs.{stock.current_price}")
         
         # If all methods failed, log it
         if not stock.current_price:
@@ -1110,42 +1132,37 @@ def refresh_stock_prices():
     for stock in stocks:
         updated = False
         
-        # Indian stocks: price scrapers only (no Screener — use Refresh 1D Change for day_change_pct)
+        # Indian stocks: NSE first (reliable), then HTML scrapers, then Yahoo (no Screener here).
         if stock.symbol.endswith('.NS') or stock.symbol.endswith('.BO'):
+            time.sleep(0.08)
             try:
-                price = get_scraped_price(stock.symbol)
+                price = get_nse_price(stock.symbol)
                 if price:
                     stock.current_price = round(price, 2)
                     stock.last_updated = datetime.now(timezone.utc)
                     updated = True
-                    print(f"[OK] Scraper: Updated {stock.symbol} -> Rs.{stock.current_price}")
+                    print(f"[OK] NSE API: Updated {stock.symbol} -> Rs.{stock.current_price}")
             except Exception as e:
-                print(f"[WARN] Scraper failed for {stock.symbol}")
-            
-            # Fallback to NSE API
+                print(f"[WARN] NSE API failed for {stock.symbol}: {e}")
             if not updated:
                 try:
-                    price = get_nse_price(stock.symbol)
+                    price = get_scraped_price(stock.symbol)
                     if price:
                         stock.current_price = round(price, 2)
                         stock.last_updated = datetime.now(timezone.utc)
                         updated = True
-                        print(f"[OK] NSE API: Updated {stock.symbol} -> Rs.{stock.current_price}")
-                except:
-                    pass
+                        print(f"[OK] Scraper: Updated {stock.symbol} -> Rs.{stock.current_price}")
+                except Exception:
+                    print(f"[WARN] Scraper failed for {stock.symbol}")
         
         # Fallback to Yahoo Finance
         if not updated:
-            try:
-                ticker = yf.Ticker(stock.symbol)
-                info = ticker.history(period='1d')
-                if not info.empty:
-                    stock.current_price = round(info['Close'].iloc[-1], 2)
-                    stock.last_updated = datetime.now(timezone.utc)
-                    updated = True
-                    print(f"[OK] Yahoo: Updated {stock.symbol} -> Rs.{stock.current_price}")
-            except:
-                pass
+            y_close = _yahoo_history_last_close(stock.symbol)
+            if y_close is not None:
+                stock.current_price = y_close
+                stock.last_updated = datetime.now(timezone.utc)
+                updated = True
+                print(f"[OK] Yahoo: Updated {stock.symbol} -> Rs.{stock.current_price}")
         
         if updated:
             updated_count += 1
@@ -1162,33 +1179,56 @@ def refresh_stock_prices():
 @app.route('/api/stocks/refresh-day-change', methods=['POST'])
 @api_login_required
 def refresh_stock_day_change():
-    """Update day_change_pct from Screener for all tracked .NS / .BO symbols (polite delay)."""
+    """Update day_change_pct for .NS / .BO: Screener, then NSE pChange, then Yahoo bars; polite delay + logs."""
     stocks = Stock.query.all()
     updated = 0
     failed = 0
     skipped = 0
     errors_sample = []
 
+    indian = [s for s in stocks if (s.symbol or '').endswith(('.NS', '.BO'))]
+    n_indian = len(indian)
+    print(
+        f"[1D] Starting day-change refresh for {n_indian} Indian symbols "
+        f"(Screener → NSE → Yahoo)…"
+    )
+
+    idx = 0
     for stock in stocks:
         sym = stock.symbol or ''
         if not (sym.endswith('.NS') or sym.endswith('.BO')):
             skipped += 1
             continue
+        idx += 1
         try:
             time.sleep(0.55)
+            print(f"[1D] ({idx}/{n_indian}) {sym} …")
             sup = fetch_company_supplement(sym)
             pct = sup.get('day_change_pct') if sup else None
+            source = 'Screener'
+            if pct is None and sym.endswith('.NS'):
+                time.sleep(0.1)
+                pct = get_nse_day_change_pct(sym)
+                source = 'NSE'
+            if pct is None:
+                pct = _yahoo_day_change_pct(sym)
+                source = 'Yahoo'
             if pct is not None:
                 stock.day_change_pct = float(pct)
                 updated += 1
+                print(f"[OK] 1D ({source}): {sym} -> {stock.day_change_pct:+.2f}%")
             else:
                 failed += 1
+                msg = f"{sym}: no day change from Screener, NSE, or Yahoo"
+                print(f"[FAIL] 1D: {msg}")
                 if len(errors_sample) < 8:
-                    errors_sample.append(f"{sym}: no day change parsed")
+                    errors_sample.append(msg)
         except Exception as e:
             failed += 1
+            err = f"{sym}: {str(e)}"
+            print(f"[FAIL] 1D: {err}")
             if len(errors_sample) < 8:
-                errors_sample.append(f"{sym}: {str(e)}")
+                errors_sample.append(err)
 
     db.session.commit()
     return jsonify({

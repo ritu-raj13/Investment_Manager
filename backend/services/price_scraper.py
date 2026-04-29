@@ -34,7 +34,7 @@ class PriceScraper:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Encoding': 'gzip, deflate',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
             'Sec-Fetch-Dest': 'document',
@@ -391,7 +391,10 @@ class PriceScraper:
                 print(f"[ERROR] Source failed for {symbol}: {str(e)}")
                 continue
         
-        print(f"[FAIL] All sources failed for {symbol}")
+        print(
+            f"[WARN] Scraper: no price from Google/Moneycontrol/Investing for {symbol} "
+            f"(HTML layout or site timeouts; NSE/Yahoo may still succeed)"
+        )
         return None
 
 
