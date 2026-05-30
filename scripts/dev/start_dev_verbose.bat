@@ -41,9 +41,9 @@ echo └────────────────────────
 echo.
 
 cd /d "%CD%\backend"
-call venv\Scripts\activate
+set "PYTHON_EXE=%CD%\venv\Scripts\python.exe"
 
-echo [✓] Virtual environment activated
+echo [✓] Using virtual environment Python
 echo.
 echo ═══════════════════════════════════════════════════════
 echo   Backend Running - Logs Visible Below
@@ -61,7 +61,7 @@ echo.
 
 REM Set environment and run backend in foreground (logs visible)
 set FLASK_ENV=development
-python app.py
+"%PYTHON_EXE%" app.py
 
 REM This line only executes if backend stops
 echo.

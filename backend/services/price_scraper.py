@@ -165,6 +165,18 @@ class PriceScraper:
             print(f"[WARN] Moneycontrol failed for {symbol}: {str(e)}")
         
         return None
+
+    def fetch_price_from_screener(self, symbol: str) -> Optional[float]:
+        """Price from Screener.in (robust when NSE blocks automated access)."""
+        try:
+            sup = fetch_company_supplement(symbol)
+            price = sup.get("price") if sup else None
+            if price is not None and 0.01 < float(price) < 100000:
+                print(f"[OK] Screener: {symbol} -> Rs.{price}")
+                return float(price)
+        except Exception as e:
+            print(f"[WARN] Screener price failed for {symbol}: {e}")
+        return None
     
     def fetch_from_screener(self, symbol: str) -> Optional[dict]:
         """
@@ -373,8 +385,8 @@ class PriceScraper:
         if not (symbol.endswith('.NS') or symbol.endswith('.BO')):
             return None
         
-        # Use ORIGINAL working sources ONLY (NO Screener for now)
         sources = [
+            self.fetch_price_from_screener,
             self.fetch_from_google_finance,
             self.fetch_from_moneycontrol,
             self.fetch_from_investing_com,

@@ -70,17 +70,20 @@ echo.
 
 REM Navigate to backend and start server in background
 cd /d "%CD%\backend"
-call venv\Scripts\activate
+set "PYTHON_EXE=%CD%\venv\Scripts\python.exe"
 
-echo [✓] Virtual environment activated
+echo [✓] Using virtual environment Python
 echo [✓] Starting Flask backend in background...
 echo.
 
 REM Set environment variables and start backend with logs visible
 set FLASK_ENV=development
+set SECRET_KEY=dev-secret-key-for-testing
+set ADMIN_USERNAME=admin
+set ADMIN_PASSWORD=admin123
 
 REM Start backend in new window (visible for debugging)
-start "Backend Server" python app.py
+start "Backend Server" "%PYTHON_EXE%" app.py
 
 REM Wait for backend to initialize
 echo Waiting for backend to start (5 seconds)...
@@ -106,8 +109,7 @@ echo     • Backend API:  http://127.0.0.1:5000
 echo     • Frontend UI:  http://localhost:3000
 echo.
 echo  🔐 Login Credentials:
-echo     • Check backend/.env file
-echo     • Default: admin / changeme
+echo     • Default: admin / admin123
 echo.
 echo  ℹ️  Servers running in separate windows:
 echo     • Backend: Check "Backend Server" window for logs

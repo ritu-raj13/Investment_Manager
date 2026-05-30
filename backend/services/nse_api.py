@@ -2,6 +2,7 @@
 NSE India API integration for fetching live stock prices
 """
 import json
+import time
 import requests
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
@@ -15,7 +16,7 @@ class NSEClient:
         self.session = requests.Session()
         self.session.headers.update(
             {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
                 "Accept": "application/json, text/plain, */*",
                 "Accept-Language": "en-US,en;q=0.9",
                 # Omit "br" unless brotli is installed; else NSE returns undecoded binary and JSON parse fails.
@@ -26,12 +27,16 @@ class NSEClient:
                 "Cache-Control": "no-cache",
             }
         )
-        self._warm_cookies()
+        self._warm_cookies("RELIANCE")
 
-    def _warm_cookies(self) -> None:
-        """NSE JSON APIs often require a recent homepage visit for cookies."""
+    def _warm_cookies(self, symbol: str = "RELIANCE") -> None:
+        """NSE JSON APIs require a recent browser session (homepage + quote page)."""
+        clean = symbol.replace(".NS", "").replace(".BO", "").upper()
+        referer = f"{self.base_url}/get-quote/equity?{urlencode({'symbol': clean})}"
         try:
             self.session.get(self.base_url, timeout=8)
+            time.sleep(0.8)
+            self.session.get(referer, timeout=8)
         except Exception:
             pass
 
@@ -45,11 +50,17 @@ class NSEClient:
         clean_symbol = symbol.replace(".NS", "").replace(".BO", "").upper()
         quote_url = f"{self.base_url}/api/quote-equity"
         referer = f"{self.base_url}/get-quote/equity?{urlencode({'symbol': clean_symbol})}"
-        quote_headers = {"Referer": referer}
+        quote_headers = {
+            "Referer": referer,
+            "X-Requested-With": "XMLHttpRequest",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+        }
 
         for attempt in range(2):
             if attempt:
-                self._warm_cookies()
+                self._warm_cookies(clean_symbol)
             try:
                 response = self.session.get(
                     quote_url,
