@@ -8,7 +8,8 @@ import {
 import StockTracking from './StockTracking';
 import Portfolio from './Portfolio';
 import Analytics from './Analytics';
-import Recommendations from './Recommendations';
+import PriceZoneAlerts from './PriceZoneAlerts';
+import RebalancingRecommendations from './RebalancingRecommendations';
 
 function Equity() {
   const [currentTab, setCurrentTab] = useState(0);
@@ -26,7 +27,8 @@ function Equity() {
           <Tab label="Holdings" />
           <Tab label="Transactions" />
           <Tab label="Analytics" />
-          <Tab label="Recommendations" />
+          <Tab label="Price Zone Alerts" />
+          <Tab label="Rebalancing Recommendations" />
         </Tabs>
       </Box>
 
@@ -35,7 +37,8 @@ function Equity() {
       {currentTab === 1 && <PortfolioHoldings />}
       {currentTab === 2 && <PortfolioTransactions />}
       {currentTab === 3 && <Analytics />}
-      {currentTab === 4 && <Recommendations />}
+      {currentTab === 4 && <PriceZoneAlerts />}
+      {currentTab === 5 && <RebalancingRecommendations />}
     </Box>
   );
 }

@@ -17,17 +17,17 @@ Flask-Limiter==3.5.0
 # gunicorn==21.2.0
 
 # Database
-SQLAlchemy==2.0.23
+SQLAlchemy>=2.0.36  # 2.0.23 breaks on Python 3.13
 # Note: psycopg2-binary removed for local dev (only needed for PostgreSQL in production)
 
 # Data Export/Import
 pandas>=2.2.0  # Use latest version with Python 3.13 wheels
 
 # Price Fetching
-yfinance==0.2.32
+yfinance>=0.2.54
 requests==2.31.0
 beautifulsoup4==4.12.2
-lxml==5.1.0
+lxml>=5.1.0  # 5.1.0 has no Python 3.13 wheel on Windows; use 6.x binary
 
 # Environment Variables
 python-dotenv==1.0.0

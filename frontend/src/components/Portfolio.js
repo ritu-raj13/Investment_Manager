@@ -28,6 +28,7 @@ import {
   CardContent,
   Tabs,
   Tab,
+  Tooltip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -35,7 +36,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import FilterListIcon from '@mui/icons-material/FilterList';
-import { portfolioAPI } from '../services/api';
+import { portfolioAPI, stockAPI } from '../services/api';
+import StockEditDialog from './StockEditDialog';
 
 const Portfolio = ({ initialTab = null, hideTitle = false }) => {
   const [currentTab, setCurrentTab] = useState(initialTab !== null ? initialTab : 0);
@@ -47,6 +49,9 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
   const [openDialog, setOpenDialog] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [editStockDialogOpen, setEditStockDialogOpen] = useState(false);
+  const [editStock, setEditStock] = useState(null);
+  const [editStockDialogMountKey, setEditStockDialogMountKey] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
   const [formData, setFormData] = useState({
     stock_symbol: '',
@@ -82,6 +87,22 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
     } catch (error) {
       showSnackbar('Error fetching portfolio summary', 'error');
     }
+  };
+
+  const handleEditHoldingStock = async (stockId) => {
+    try {
+      const response = await stockAPI.getById(stockId);
+      setEditStockDialogMountKey((k) => k + 1);
+      setEditStock(response.data);
+      setEditStockDialogOpen(true);
+    } catch (error) {
+      showSnackbar(error.response?.data?.error || 'Failed to load stock for editing', 'error');
+    }
+  };
+
+  const handleCloseEditStockDialog = () => {
+    setEditStockDialogOpen(false);
+    setEditStock(null);
   };
 
   const fetchSettings = async () => {
@@ -198,6 +219,124 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
 
   const formatCurrency = (value) => {
     return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  const pnlTooltipProps = {
+    arrow: true,
+    placement: 'top',
+    enterDelay: 300,
+    leaveDelay: 100,
+    disableInteractive: false,
+    componentsProps: {
+      tooltip: {
+        sx: {
+          bgcolor: '#1e293b',
+          border: '1px solid rgba(148, 163, 184, 0.25)',
+          boxShadow: 6,
+          p: 0,
+          maxWidth: 'none',
+        },
+      },
+    },
+  };
+
+  const renderPnlBreakdownTooltip = (title, items, total, emptyMessage) => (
+    <Box sx={{ p: 1.5, minWidth: 280, maxWidth: 360 }}>
+      <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+        {title}
+      </Typography>
+      {!items?.length ? (
+        <Typography variant="body2" color="text.secondary">
+          {emptyMessage}
+        </Typography>
+      ) : (
+        <>
+          <Box sx={{ maxHeight: 280, overflowY: 'auto', pr: 0.5 }}>
+            {items.map((item) => (
+              <Box
+                key={`${item.symbol}-${item.closed ? 'closed' : 'open'}`}
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 2,
+                  py: 0.45,
+                }}
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" fontWeight="medium" noWrap>
+                    {item.symbol}
+                    {item.closed ? (
+                      <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                        (fully sold)
+                      </Typography>
+                    ) : null}
+                  </Typography>
+                  {item.name ? (
+                    <Typography variant="caption" color="text.secondary" noWrap display="block">
+                      {item.name}
+                    </Typography>
+                  ) : null}
+                </Box>
+                <Typography
+                  variant="body2"
+                  fontWeight="bold"
+                  color={item.amount >= 0 ? 'success.main' : 'error.main'}
+                  sx={{ flexShrink: 0 }}
+                >
+                  {formatCurrency(item.amount)}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+          <Box
+            sx={{
+              borderTop: '1px solid rgba(148, 163, 184, 0.25)',
+              mt: 1,
+              pt: 1,
+              display: 'flex',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Typography variant="body2" fontWeight="bold">
+              Total
+            </Typography>
+            <Typography
+              variant="body2"
+              fontWeight="bold"
+              color={total >= 0 ? 'success.main' : 'error.main'}
+            >
+              {formatCurrency(total)}
+            </Typography>
+          </Box>
+        </>
+      )}
+    </Box>
+  );
+
+  const getRealizedBreakdown = () => {
+    if (summary?.realized_breakdown) return summary.realized_breakdown;
+    return (summary?.holdings || [])
+      .filter((h) => h.realized_pnl)
+      .map((h) => ({
+        symbol: h.symbol.replace('.NS', '').replace('.BO', ''),
+        name: h.name,
+        amount: h.realized_pnl,
+        closed: false,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+  };
+
+  const getUnrealizedBreakdown = () => {
+    if (summary?.unrealized_breakdown) return summary.unrealized_breakdown;
+    return (summary?.holdings || [])
+      .filter((h) => h.unrealized_pnl !== 0)
+      .map((h) => ({
+        symbol: h.symbol.replace('.NS', '').replace('.BO', ''),
+        name: h.name,
+        amount: h.unrealized_pnl,
+      }))
+      .sort((a, b) => b.amount - a.amount);
   };
 
   const getAllocationColor = (marketCap, percentage) => {
@@ -329,6 +468,16 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
             </Card>
           </Grid>
           <Grid item xs={12} sm={6} md={2}>
+            <Tooltip
+              {...pnlTooltipProps}
+              title={renderPnlBreakdownTooltip(
+                'Realized P/L by stock',
+                getRealizedBreakdown(),
+                summary.total_realized_pnl,
+                'No booked profit/loss yet'
+              )}
+            >
+              <Box component="span" sx={{ display: 'block', height: '100%', cursor: 'help' }}>
             <Card sx={{ 
               borderRadius: 3,
               height: '100%',
@@ -355,12 +504,24 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
                   )}
                 </Box>
                 <Typography variant="caption" color="text.secondary">
-                  Booked profit/loss
+                  Booked profit/loss · hover for breakdown
                 </Typography>
               </CardContent>
             </Card>
+              </Box>
+            </Tooltip>
           </Grid>
           <Grid item xs={12} sm={6} md={2}>
+            <Tooltip
+              {...pnlTooltipProps}
+              title={renderPnlBreakdownTooltip(
+                'Unrealized P/L by stock',
+                getUnrealizedBreakdown(),
+                summary.total_unrealized_pnl,
+                'No open positions'
+              )}
+            >
+              <Box component="span" sx={{ display: 'block', height: '100%', cursor: 'help' }}>
             <Card sx={{ 
               borderRadius: 3,
               height: '100%',
@@ -387,10 +548,12 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
                   )}
                 </Box>
                 <Typography variant="caption" color="text.secondary">
-                  {summary.total_unrealized_pnl_pct >= 0 ? '+' : ''}{summary.total_unrealized_pnl_pct.toFixed(2)}%
+                  {summary.total_unrealized_pnl_pct >= 0 ? '+' : ''}{summary.total_unrealized_pnl_pct.toFixed(2)}% · hover for breakdown
                 </Typography>
               </CardContent>
             </Card>
+              </Box>
+            </Tooltip>
           </Grid>
           <Grid item xs={12} sm={6} md={2}>
             <Card sx={{ 
@@ -577,9 +740,22 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
               ).map((holding) => (
                   <TableRow key={holding.symbol}>
                     <TableCell>
-                      <Typography variant="body1" fontWeight="bold">
-                        {holding.symbol.replace('.NS', '').replace('.BO', '')}
-                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography variant="body1" fontWeight="bold">
+                          {holding.symbol.replace('.NS', '').replace('.BO', '')}
+                        </Typography>
+                        {holding.stock_id != null && (
+                          <Tooltip title="Edit tracking">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleEditHoldingStock(holding.stock_id)}
+                              aria-label={`Edit ${holding.symbol}`}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Box>
                     </TableCell>
                     <TableCell align="right">{holding.quantity}</TableCell>
                     <TableCell align="right">{formatCurrency(holding.avg_price)}</TableCell>
@@ -873,6 +1049,16 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <StockEditDialog
+        key={editStockDialogMountKey}
+        open={editStockDialogOpen}
+        onClose={handleCloseEditStockDialog}
+        stock={editStock}
+        onSuccess={() => {
+          fetchSummary();
+        }}
+      />
 
       {/* Snackbar for notifications */}
       <Snackbar

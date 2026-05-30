@@ -18,7 +18,7 @@ import {
   Snackbar,
   Autocomplete,
 } from '@mui/material';
-import { stockAPI, sectorAPI } from '../services/api';
+import { stockAPI } from '../services/api';
 
 const emptyForm = () => ({
   symbol: '',
@@ -60,7 +60,6 @@ const stockToForm = (stock) => ({
 const StockEditDialog = ({ open, onClose, stock, onSuccess }) => {
   const [groups, setGroups] = useState([]);
   const [sectors, setSectors] = useState([]);
-  const [sectorMappings, setSectorMappings] = useState({});
   const [formData, setFormData] = useState(emptyForm);
   const [fetchingDetails, setFetchingDetails] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -87,24 +86,10 @@ const StockEditDialog = ({ open, onClose, stock, onSuccess }) => {
     }
   }, []);
 
-  const fetchParentSectors = useCallback(async () => {
-    try {
-      const mappingsRes = await sectorAPI.getParentMappings();
-      const mappings = {};
-      mappingsRes.data.forEach((m) => {
-        mappings[m.sector_name] = m.parent_sector;
-      });
-      setSectorMappings(mappings);
-    } catch (error) {
-      console.error('Error fetching parent sectors:', error);
-    }
-  }, []);
-
   useEffect(() => {
     fetchGroups();
     fetchSectors();
-    fetchParentSectors();
-  }, [fetchGroups, fetchSectors, fetchParentSectors]);
+  }, [fetchGroups, fetchSectors]);
 
   // Remount freeSolo Autocompletes when switching stocks — MUI can keep stale input text otherwise.
   const stockIdentityKey = stock?.id != null ? `id-${stock.id}` : 'add';
@@ -282,11 +267,7 @@ const StockEditDialog = ({ open, onClose, stock, onSuccess }) => {
                     {...params}
                     label="Sector"
                     placeholder="e.g., FMCG, Auto"
-                    helperText={
-                      formData.sector && sectorMappings[formData.sector]
-                        ? `Parent: ${sectorMappings[formData.sector]}`
-                        : 'Select existing or type new'
-                    }
+                    helperText="Select existing or type new"
                   />
                 )}
               />

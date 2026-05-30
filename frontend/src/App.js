@@ -16,7 +16,6 @@ import {
   Tooltip
 } from '@mui/material';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
-import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
@@ -24,18 +23,11 @@ import AccountBoxIcon from '@mui/icons-material/AccountBox';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import FavoriteIcon from '@mui/icons-material/Favorite';
-import RecommendIcon from '@mui/icons-material/Recommend';
 import SettingsIcon from '@mui/icons-material/Settings';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import LogoutIcon from '@mui/icons-material/Logout';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import TimelineIcon from '@mui/icons-material/Timeline';
 import SchoolIcon from '@mui/icons-material/School';
-import StockTracking from './components/StockTracking';
-import Portfolio from './components/Portfolio';
-import Analytics from './components/Analytics';
 import Health from './components/Health';
-import Recommendations from './components/Recommendations';
 import Settings from './components/Settings';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -47,6 +39,48 @@ import Reports from './components/Reports';
 import Equity from './components/Equity';
 import KnowledgeBase from './components/KnowledgeBase';
 import { authAPI } from './services/api';
+
+const DEV_AUTO_LOGIN = process.env.REACT_APP_DEV_AUTO_LOGIN === 'true';
+const DEV_USERNAME = process.env.REACT_APP_DEV_USERNAME || 'admin';
+const DEV_PASSWORD = process.env.REACT_APP_DEV_PASSWORD || 'admin123';
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function bootstrapAuth() {
+  const maxAttempts = DEV_AUTO_LOGIN ? 10 : 1;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const response = await authAPI.checkAuth();
+      return { authenticated: true, username: response.data.username };
+    } catch (error) {
+      const isUnauthorized = error.response?.status === 401;
+      const isNetworkError = !error.response;
+
+      if (isNetworkError && attempt < maxAttempts - 1) {
+        await sleep(1000);
+        continue;
+      }
+
+      if (DEV_AUTO_LOGIN && (isUnauthorized || isNetworkError)) {
+        try {
+          await authAPI.login(DEV_USERNAME, DEV_PASSWORD);
+          const response = await authAPI.checkAuth();
+          return {
+            authenticated: true,
+            username: response.data.username || DEV_USERNAME,
+          };
+        } catch (loginError) {
+          return { authenticated: false, username: '' };
+        }
+      }
+
+      return { authenticated: false, username: '' };
+    }
+  }
+
+  return { authenticated: false, username: '' };
+}
 
 const theme = createTheme({
   palette: {
@@ -105,18 +139,13 @@ function App() {
     setCurrentTab(newValue);
   };
 
-  // Check authentication status on mount
+  // Check authentication status on mount (retry + dev auto-login)
   useEffect(() => {
     const checkAuthentication = async () => {
-      try {
-        const response = await authAPI.checkAuth();
-        setIsAuthenticated(true);
-        setUsername(response.data.username);
-      } catch (error) {
-        setIsAuthenticated(false);
-      } finally {
-        setIsCheckingAuth(false);
-      }
+      const { authenticated, username: authUsername } = await bootstrapAuth();
+      setIsAuthenticated(authenticated);
+      setUsername(authUsername);
+      setIsCheckingAuth(false);
     };
 
     checkAuthentication();
