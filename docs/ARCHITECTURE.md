@@ -49,20 +49,19 @@ Personal Finance Manager is a **full-stack web application** evolved from a stoc
 ### To: Personal Finance Manager + Swing Trading
 - **8 asset types** (Stocks, MF, FD, EPF, NPS, Savings, Lending, Other)
 - **96+ API endpoints** (4.3x expansion)
-- **15 database models** (5x expansion)
+- **14 database models** (4.7x expansion)
 - **Comprehensive tracking** (net worth, cash flow, budgets, XIRR, swing trading)
 
 ### What Changed
 
-#### Database Expansion (+12 models)
+#### Database Expansion (+11 models)
 ```
 Original Models (3):
 - Stock
 - PortfolioTransaction
 - PortfolioSettings
 
-Added Models (12):
-- ParentSectorMapping (NEW Nov 2025 - Swing Trading)
+Added Models (11):
 - MutualFund, MutualFundTransaction
 - FixedDeposit
 - EPFAccount, EPFContribution
@@ -320,28 +319,25 @@ def calculate_holdings(transactions):
 
 #### 4. **services/** - External Services
 **Modules:**
-- `price_scraper.py` - Multi-source scraping with fallbacks
-- `nse_api.py` - NSE India API client
+- `market_data.py` - Unified price & 1D change chain
+- `price_scraper.py` - Google Finance & Screener HTML helpers
+- `nse_api.py` - NSE India API client (last resort)
 
-**PriceScraper Features:**
-- Multi-source scraping with fallbacks
-- Robust price extraction using regex patterns
-- Browser-like headers to avoid blocking
-
-**Scraping Sources (in order):**
-1. **Google Finance** - Primary (reliable, fast)
-2. **Moneycontrol** - Fallback #1
-3. **Investing.com** - Fallback #2
-4. **Screener.in** - OPTIONAL for name & day change % only (NOT for price)
+**Unified fallback (price and `day_change_pct`):**
+1. **Yahoo Finance** (yfinance)
+2. **Screener.in** (company page)
+3. **Google Finance** (HTML scrape)
+4. **NSE API** (often 403 / blocked)
 
 **Public API:**
-- `get_scraped_price(symbol)` - Get price only (reliable)
-- `get_stock_details(symbol)` - Get price + name + day_change_pct
+- `fetch_stock_price(symbol)` / `fetch_stock_day_change_pct(symbol)` - Unified chain with source label
+- `get_scraped_price(symbol)` - Price only (wrapper)
+- `get_stock_details(symbol)` - Price + 1D + Screener metadata (sector, name)
 
 #### 4. **nse_api.py** - NSE India API Client
 - Direct API calls to NSE India
-- Used as fallback when web scraping fails
-- Often blocked/rate-limited (hence fallback only)
+- Last step in the unified chain
+- Often blocked by Akamai (403)
 
 #### 5. **db_migrator.py** - Database Migrations
 - Universal migration tool
@@ -498,28 +494,19 @@ App (MUI Theme + Tabs)
 | max_mid_cap_portfolio_pct | FLOAT | DEFAULT 30.0 | Max total % of portfolio in Mid Cap |
 | max_small_cap_portfolio_pct | FLOAT | DEFAULT 25.0 | Max total % of portfolio in Small Cap |
 | max_micro_cap_portfolio_pct | FLOAT | DEFAULT 10.0 | Max total % of portfolio in Micro Cap |
-| max_stocks_per_sector | INTEGER | DEFAULT 2 | Max stocks per parent sector |
+| max_stocks_per_sector | INTEGER | DEFAULT 2 | Max stocks per child sector |
+| max_stocks_per_parent_sector | INTEGER | DEFAULT 4 | Max stocks per parent sector |
 | max_total_stocks | INTEGER | DEFAULT 30 | Max total stocks in portfolio |
 | updated_at | DATETIME | NULL | Last update timestamp |
 
 **Note:** Display values in UI show +0.5% leverage (e.g., Large Cap displays as 5.5% but actual max is 5%)
 
-#### 4. **parent_sector_mappings** - Parent Sector Grouping (NEW Nov 2025)
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | INTEGER | PRIMARY KEY | Auto-increment ID |
-| sector_name | VARCHAR(100) | UNIQUE, NOT NULL | Child sector name (e.g., "Auto Components") |
-| parent_sector | VARCHAR(100) | NOT NULL | Parent sector (e.g., "Auto") |
-| created_at | DATETIME | NULL | Creation timestamp |
-| updated_at | DATETIME | NULL | Last update timestamp |
+#### 4. **stocks.parent_sector** - Parent Sector Classification
+`parent_sector` is now stored directly on each stock row and auto-populated from Screener peer breadcrumbs:
+- **Child sector (`stocks.sector`)**: second-to-last label
+- **Parent sector (`stocks.parent_sector`)**: third-to-last label
 
-**Purpose:** Group related child sectors under parent sectors to enforce max 2 stocks per parent sector rule
-
-**Example Mappings:**
-- Auto Components → Auto
-- Automobile → Auto
-- IT Services → IT
-- Banking → Banking
+**Purpose:** enforce parent-sector diversification directly without a separate mapping table.
 
 ### New Tables (Personal Finance Transformation)
 
@@ -743,13 +730,11 @@ Frontend → POST /api/stocks/refresh-prices
     ↓
 Backend iterates through all stocks
     ↓
-For each stock:
-  Try: get_scraped_price(symbol)
-    ├─→ Google Finance scraper → Success? → Update DB
-    ├─→ Moneycontrol scraper → Success? → Update DB
-    ├─→ Investing.com scraper → Success? → Update DB
-    ├─→ NSE API → Success? → Update DB
-    └─→ Yahoo Finance API → Success? → Update DB
+For each stock (fetch_stock_price):
+    ├─→ Yahoo Finance → Success? → Update DB
+    ├─→ Screener.in → Success? → Update DB
+    ├─→ Google Finance → Success? → Update DB
+    └─→ NSE API → Success? → Update DB
     ↓
 Response: {total, updated, failed}
     ↓

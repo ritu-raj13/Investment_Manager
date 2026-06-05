@@ -24,13 +24,13 @@ A comprehensive personal finance management platform for tracking stocks, mutual
 - **Dashboard** - Net worth, asset allocation, cash flow
 - **Stock Tracking** - Full CRUD, FIFO P/L, XIRR, holding periods
 - **Portfolio Management** - Transaction tracking, realized/unrealized P/L, multi-step buy/sell
-- **Swing Trading** - Projected portfolio planning, parent sector grouping, 3-tier market cap limits
+- **Swing Trading** - Projected portfolio planning, stock-level parent sectors, 3-tier market cap limits
 - **Mutual Funds** - Schemes, transactions, holdings, SIP, XIRR
 - **Fixed Income** - FD with maturity tracking, EPF, NPS
 - **Savings & Accounts** - Savings accounts, lending tracker, other investments
 - **Income & Expenses** - Transaction tracking, budgets, trends
 - **Reports** - Net worth trends, allocation evolution, tax summary
-- **Analytics** - Charts, top gainers/losers, sector/market cap allocation, parent sector management
+- **Analytics** - Charts, top gainers/losers, sector/parent-sector/market cap allocation
 - **Health Metrics** - Concentration, diversification analysis
 - **Recommendations** - Rebalancing suggestions (attention-sorted), price zone alerts, in-page edit of tracking (zones, notes, etc.) from zone rows
 - **Settings** - Import/export, automatic daily backup, configurable limits
@@ -129,7 +129,7 @@ For complete installation instructions and troubleshooting, see **[GETTING_START
 ### Stock Investment Tracking + Swing Trading
 - **Projected Portfolio Planning** - Set target amount with target date
 - **Multi-Step Buy/Sell** - Track 3-step buys, 2-step sells with avg price
-- **Parent Sector Grouping** - Group related sectors, limit stocks per parent
+- **Parent Sector Assignment** - Auto-derive parent sector from Screener labels, limit stocks per parent
 - **Three-Tier Market Cap Limits:**
   - Per-stock % caps (Large: 5%, Mid: 3%, Small: 2.5%, Micro: 2%)
   - Stock count limits (Large: 15, Mid: 8, Small: 7, Micro: 3)
@@ -167,7 +167,7 @@ For complete installation instructions and troubleshooting, see **[GETTING_START
 
 **Backend:** Python, Flask, SQLAlchemy, SQLite  
 **Frontend:** React, Material-UI, Recharts, Axios  
-**Data Sources:** Web scraping (Google Finance, Moneycontrol), Yahoo Finance API
+**Data Sources:** Yahoo Finance, Screener.in, Google Finance, NSE API (unified fallback chain)
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed technical design.
 

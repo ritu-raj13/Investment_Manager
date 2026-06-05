@@ -47,6 +47,8 @@ export const stockAPI = {
     api.post('/stocks/refresh-prices', {}, { timeout: LONG_REQUEST_MS }),
   refreshDayChange: () =>
     api.post('/stocks/refresh-day-change', {}, { timeout: LONG_REQUEST_MS }),
+  refreshMarketCap: () =>
+    api.post('/stocks/refresh-market-cap', {}, { timeout: LONG_REQUEST_MS }),
   getGroups: () => api.get('/stocks/groups'),
   getSectors: () => api.get('/stocks/sectors'),
   fetchDetails: (symbol) => api.get(`/stocks/fetch-details/${symbol}`),

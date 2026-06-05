@@ -217,11 +217,11 @@ def calculate_allocation_health(holdings):
             balanced += 1
             continue
         
-        # Apply allocation logic (with +0.5% green range)
-        if percentage > threshold + 0.5:
+        # Strict allocation logic (no tolerance buffer)
+        if percentage > threshold:
             status = 'over_allocated'
             over_allocated += 1
-        elif percentage >= threshold:
+        elif abs(percentage - threshold) < 1e-9:
             status = 'balanced'
             balanced += 1
         else:
