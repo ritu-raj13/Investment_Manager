@@ -353,11 +353,11 @@ const Portfolio = ({ initialTab = null, hideTitle = false }) => {
       return { bgcolor: '#60a5fa', color: 'white' }; // Blue (default)
     }
 
-    // Color logic: Green includes up to +0.5% above threshold
-    if (percentage > threshold + 0.5) {
-      return { bgcolor: '#ef4444', color: 'white' }; // Red - over allocated (more than +0.5% above threshold)
+    // Strict max-threshold logic: anything above threshold is over-allocated
+    if (percentage > threshold) {
+      return { bgcolor: '#ef4444', color: 'white' }; // Red - over allocated
     } else if (percentage >= threshold) {
-      return { bgcolor: '#22c55e', color: 'white' }; // Green - good allocation (threshold to threshold+0.5%)
+      return { bgcolor: '#22c55e', color: 'white' }; // Green - at threshold
     } else {
       return { bgcolor: '#f59e0b', color: 'white' }; // Orange/Yellow - under allocated
     }

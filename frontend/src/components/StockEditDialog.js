@@ -25,6 +25,7 @@ const emptyForm = () => ({
   name: '',
   group_name: '',
   sector: '',
+  parent_sector: '',
   market_cap: '',
   current_price: '',
   day_change_pct: null,
@@ -40,6 +41,7 @@ const stockToForm = (stock) => ({
   name: stock.name,
   group_name: stock.group_name || '',
   sector: stock.sector || '',
+  parent_sector: stock.parent_sector || '',
   market_cap: stock.market_cap || '',
   buy_zone_price: stock.buy_zone_price || '',
   sell_zone_price: stock.sell_zone_price || '',
@@ -112,7 +114,7 @@ const StockEditDialog = ({ open, onClose, stock, onSuccess }) => {
       !editingStock &&
       symbol &&
       (symbol.endsWith('.NS') || symbol.endsWith('.BO')) &&
-      (!formData.name || !formData.sector || !formData.market_cap);
+      (!formData.name || !formData.sector || !formData.parent_sector || !formData.market_cap);
 
     if (needsFetch) {
       setFetchingDetails(true);
@@ -128,6 +130,7 @@ const StockEditDialog = ({ open, onClose, stock, onSuccess }) => {
           day_change_pct: details.day_change_pct !== undefined ? details.day_change_pct : prev.day_change_pct,
           status: details.status || prev.status,
           sector: details.sector || prev.sector,
+          parent_sector: details.parent_sector || prev.parent_sector,
           market_cap: details.market_cap || prev.market_cap,
         }));
 
@@ -265,11 +268,22 @@ const StockEditDialog = ({ open, onClose, stock, onSuccess }) => {
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    label="Sector"
+                    label="Child Sector"
                     placeholder="e.g., FMCG, Auto"
-                    helperText="Select existing or type new"
+                    helperText="Select existing child sector or type new"
                   />
                 )}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label="Parent Sector"
+                name="parent_sector"
+                value={formData.parent_sector}
+                onChange={handleInputChange}
+                placeholder="e.g., Auto, IT, Pharma"
+                helperText="Auto-fetched from Screener (3rd last label)"
               />
             </Grid>
             <Grid item xs={12} sm={6}>

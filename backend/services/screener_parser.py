@@ -37,28 +37,68 @@ def parse_indian_number_cr(text: str) -> Optional[float]:
 
 
 def extract_market_cap_cr_from_soup(soup: BeautifulSoup) -> Optional[float]:
-    """#top-ratios first li where name is 'Market Cap'."""
+    """Extract market cap (Cr) with strict ordered label matching."""
+    ordered_labels = [
+        "market cap",
+        "mar cap",
+        "market capitalization",
+    ]
+
+    def _normalize_label(text: str) -> str:
+        lowered = text.lower().strip()
+        lowered = re.sub(r"\s+", " ", lowered)
+        lowered = lowered.rstrip(":")
+        return lowered
+
+    # Primary path: #top-ratios exact label match in strict order.
+    values_by_label = {}
     for li in soup.select("#top-ratios li"):
         name_el = li.select_one("span.name")
         if not name_el:
             continue
-        if "Market Cap" not in name_el.get_text():
+        label = _normalize_label(name_el.get_text(" ", strip=True))
+        if label not in ordered_labels:
             continue
         num_el = li.select_one("span.number")
         if not num_el:
-            return None
-        return parse_indian_number_cr(num_el.get_text())
+            continue
+        parsed = parse_indian_number_cr(num_el.get_text())
+        if parsed is not None and label not in values_by_label:
+            values_by_label[label] = parsed
+
+    for label in ordered_labels:
+        if label in values_by_label:
+            return values_by_label[label]
+
+    # Fallback: whole-page text with same strict ordered labels.
+    body_text = soup.get_text(" ", strip=True)
+    regex_templates = [
+        r"market\s*cap\s*[:\-]?\s*₹?\s*([\d,]+(?:\.\d+)?)",
+        r"mar\s*cap\s*[:\-]?\s*₹?\s*([\d,]+(?:\.\d+)?)",
+        r"market\s*capitalization\s*[:\-]?\s*₹?\s*([\d,]+(?:\.\d+)?)",
+    ]
+    for pattern in regex_templates:
+        m = re.search(pattern, body_text, re.I)
+        if not m:
+            continue
+        parsed = parse_indian_number_cr(m.group(1))
+        if parsed is not None:
+            return parsed
     return None
 
 
-def extract_peer_sector_second_last(soup: BeautifulSoup) -> Tuple[Optional[str], Optional[str]]:
+def extract_peer_sector_hierarchy(
+    soup: BeautifulSoup,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
-    Peer comparison breadcrumb in section#peers: take second-to-last link text.
-    Returns (sector, raw_concat_for_debug).
+    Peer comparison breadcrumb in section#peers:
+      - parent sector: third-to-last link
+      - child sector: second-to-last link
+    Returns (parent_sector, child_sector, raw_concat_for_debug).
     """
     section = soup.select_one("section#peers")
     if not section:
-        return None, None
+        return None, None, None
 
     labels: List[str] = []
     for p in section.select("p.sub"):
@@ -77,12 +117,14 @@ def extract_peer_sector_second_last(soup: BeautifulSoup) -> Tuple[Optional[str],
             labels = texts
 
     if not labels:
-        return None, None
+        return None, None, None
 
     raw = " | ".join(labels)
-    if len(labels) >= 2:
-        return labels[-2], raw
-    return labels[-1], raw
+    if len(labels) >= 3:
+        return labels[-3], labels[-2], raw
+    if len(labels) == 2:
+        return None, labels[-2], raw
+    return None, labels[-1], raw
 
 
 def parse_screener_company_page(
@@ -94,6 +136,7 @@ def parse_screener_company_page(
         "price": None,
         "day_change_pct": None,
         "market_cap_cr": None,
+        "parent_sector": None,
         "sector": None,
         "sector_peer_raw": None,
     }
@@ -104,7 +147,8 @@ def parse_screener_company_page(
         out["name"] = name or None
 
     out["market_cap_cr"] = extract_market_cap_cr_from_soup(soup)
-    sector, raw = extract_peer_sector_second_last(soup)
+    parent_sector, sector, raw = extract_peer_sector_hierarchy(soup)
+    out["parent_sector"] = parent_sector
     out["sector"] = sector
     out["sector_peer_raw"] = raw
 

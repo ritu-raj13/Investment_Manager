@@ -85,6 +85,10 @@ class DatabaseMigrator:
         # Add market_cap column (if missing)
         if self.add_column_if_missing('stocks', 'market_cap', 'VARCHAR(20)'):
             changes_made = True
+
+        # Add parent_sector column (if missing)
+        if self.add_column_if_missing('stocks', 'parent_sector', 'VARCHAR(100)'):
+            changes_made = True
         
         # Add day_change_pct column (if missing)
         if self.add_column_if_missing('stocks', 'day_change_pct', 'FLOAT'):
@@ -123,6 +127,7 @@ class DatabaseMigrator:
                     name VARCHAR(100) NOT NULL,
                     group_name VARCHAR(50),
                     sector VARCHAR(100),
+                    parent_sector VARCHAR(100),
                     market_cap VARCHAR(20),
                     buy_zone_price VARCHAR(50),
                     sell_zone_price VARCHAR(50),
@@ -139,7 +144,7 @@ class DatabaseMigrator:
             self.cursor.execute('''
                 INSERT INTO stocks_new 
                 SELECT 
-                    id, symbol, name, group_name, sector, market_cap,
+                    id, symbol, name, group_name, sector, parent_sector, market_cap,
                     CAST(buy_zone_price AS TEXT),
                     CAST(sell_zone_price AS TEXT),
                     CAST(average_zone_price AS TEXT),
@@ -186,8 +191,26 @@ class DatabaseMigrator:
             changes = True
         if self.add_column_if_missing('portfolio_settings', 'mc_thresholds_updated_at', 'DATETIME'):
             changes = True
+        if self.add_column_if_missing('portfolio_settings', 'max_stocks_per_parent_sector', 'INTEGER', default_value=4):
+            changes = True
+        if self.add_column_if_missing('portfolio_settings', 'max_parent_sector_pct', 'FLOAT', default_value=15.0):
+            changes = True
+        if self.add_column_if_missing('portfolio_settings', 'max_child_sector_pct', 'FLOAT', default_value=8.0):
+            changes = True
         if not changes:
             print("  [OK] portfolio_settings MC threshold columns up to date")
+
+    def drop_legacy_parent_sector_mappings_table(self):
+        """Drop deprecated parent_sector_mappings table."""
+        print("\n[LEGACY TABLE CLEANUP]")
+        if not self.table_exists('parent_sector_mappings'):
+            print("  [OK] parent_sector_mappings table already absent")
+            return
+        try:
+            self.cursor.execute('DROP TABLE parent_sector_mappings')
+            print("  [OK] Dropped legacy table 'parent_sector_mappings'")
+        except sqlite3.Error as e:
+            print(f"  [ERROR] Failed to drop parent_sector_mappings table: {e}")
     
     def migrate_mutual_funds_table(self):
         """Migrate mutual_funds table to make scheme_code optional"""
@@ -317,6 +340,7 @@ class DatabaseMigrator:
             self.migrate_portfolio_settings_table()
             self.migrate_mutual_funds_table()
             self.migrate_mutual_fund_transactions_table()
+            self.drop_legacy_parent_sector_mappings_table()
             
             # Commit all changes
             self.conn.commit()

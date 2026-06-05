@@ -40,7 +40,7 @@ const StockTracking = () => {
   const [stockDialogMountKey, setStockDialogMountKey] = useState(0);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [expandedGroups, setExpandedGroups] = useState({});
-  /** 'prices' | 'dayChange' while a bulk job is in flight */
+  /** 'prices' | 'dayChange' | 'marketCap' while a bulk job is in flight */
   const [bulkRefreshing, setBulkRefreshing] = useState(null);
 
   useEffect(() => {
@@ -133,6 +133,23 @@ const StockTracking = () => {
     }
   };
 
+  const handleRefreshMarketCap = async () => {
+    setBulkRefreshing('marketCap');
+    try {
+      const response = await stockAPI.refreshMarketCap();
+      showSnackbar(response.data.message || 'Market-cap buckets refreshed', 'success');
+      fetchStocks();
+    } catch (error) {
+      const msg =
+        error.code === 'ECONNABORTED'
+          ? 'Request timed out — many stocks can take several minutes'
+          : 'Error refreshing market caps';
+      showSnackbar(error.response?.data?.error || msg, 'error');
+    } finally {
+      setBulkRefreshing(null);
+    }
+  };
+
   const toggleGroup = (groupName) => {
     setExpandedGroups(prev => ({
       ...prev,
@@ -207,6 +224,7 @@ const StockTracking = () => {
         stock.symbol?.toLowerCase().includes(search) ||
         stock.name?.toLowerCase().includes(search) ||
         stock.sector?.toLowerCase().includes(search) ||
+        stock.parent_sector?.toLowerCase().includes(search) ||
         stock.status?.toLowerCase().includes(search) ||
         stock.market_cap?.toLowerCase().includes(search)
       );
@@ -274,6 +292,22 @@ const StockTracking = () => {
           </Button>
           <Button
             variant="outlined"
+            color="info"
+            startIcon={
+              bulkRefreshing === 'marketCap' ? (
+                <CircularProgress size={18} color="inherit" />
+              ) : (
+                <RefreshIcon />
+              )
+            }
+            onClick={handleRefreshMarketCap}
+            disabled={bulkRefreshing !== null}
+            sx={{ borderRadius: 2 }}
+          >
+            {bulkRefreshing === 'marketCap' ? 'Refreshing market cap…' : 'Refresh Market Cap'}
+          </Button>
+          <Button
+            variant="outlined"
             color="secondary"
             startIcon={
               bulkRefreshing === 'dayChange' ? (
@@ -309,7 +343,7 @@ const StockTracking = () => {
             <TextField
               fullWidth
               size="small"
-              placeholder="Search by name, symbol, sector, status, market cap..."
+              placeholder="Search by name, symbol, child sector, parent sector, status, market cap..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
@@ -450,7 +484,12 @@ const StockTracking = () => {
 
                       {stock.sector && (
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-                          {stock.sector}
+                          Child: {stock.sector}
+                        </Typography>
+                      )}
+                      {stock.parent_sector && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                          Parent: {stock.parent_sector}
                         </Typography>
                       )}
 

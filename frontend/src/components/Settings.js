@@ -62,6 +62,9 @@ const Settings = () => {
     max_micro_cap_portfolio_pct: 10,
     // Overall limits
     max_stocks_per_sector: 2,
+    max_stocks_per_parent_sector: 4,
+    max_parent_sector_pct: 15,
+    max_child_sector_pct: 8,
     max_total_stocks: 30,
     // Screener MC cutoffs (Rs. Cr) — fetch from Screener on Stock Portfolio tab
     mc_threshold_rank_100: '',
@@ -121,6 +124,9 @@ const Settings = () => {
         max_micro_cap_portfolio_pct: response.data.max_micro_cap_portfolio_pct || 10,
         // Overall limits
         max_stocks_per_sector: response.data.max_stocks_per_sector || 2,
+        max_stocks_per_parent_sector: response.data.max_stocks_per_parent_sector || 4,
+        max_parent_sector_pct: response.data.max_parent_sector_pct || 15,
+        max_child_sector_pct: response.data.max_child_sector_pct || 8,
         max_total_stocks: response.data.max_total_stocks || 30,
         mc_threshold_rank_100:
           response.data.mc_threshold_rank_100 != null ? response.data.mc_threshold_rank_100 : '',
@@ -625,7 +631,7 @@ const Settings = () => {
                   endAdornment: <InputAdornment position="end">%</InputAdornment>,
                 }}
                 inputProps={{ min: 0, max: 100, step: 0.5 }}
-                helperText="Actual max: 5%, with 0.5% leverage shown as 5.5%"
+                helperText="Strict max % per individual Large Cap stock"
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>
@@ -641,7 +647,7 @@ const Settings = () => {
                   endAdornment: <InputAdornment position="end">%</InputAdornment>,
                 }}
                 inputProps={{ min: 0, max: 100, step: 0.5 }}
-                helperText="Actual max: 3%, with 0.5% leverage shown as 3.5%"
+                helperText="Strict max % per individual Mid Cap stock"
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>
@@ -657,7 +663,7 @@ const Settings = () => {
                   endAdornment: <InputAdornment position="end">%</InputAdornment>,
                 }}
                 inputProps={{ min: 0, max: 100, step: 0.5 }}
-                helperText="Actual max: 2.5%, with 0.5% leverage shown as 3%"
+                helperText="Strict max % per individual Small Cap stock"
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>
@@ -673,7 +679,7 @@ const Settings = () => {
                   endAdornment: <InputAdornment position="end">%</InputAdornment>,
                 }}
                 inputProps={{ min: 0, max: 100, step: 0.5 }}
-                helperText="Actual max: 2%, with 0.5% leverage shown as 2.5%"
+                helperText="Strict max % per individual Micro Cap stock"
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>
@@ -833,10 +839,10 @@ const Settings = () => {
             </Grid>
 
             {/* Overall Limits */}
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12} sm={6} md={4}>
               <TextField
                 fullWidth
-                label="Max Stocks per Parent Sector"
+                label="Max Stocks per Child Sector"
                 type="number"
                 value={config.max_stocks_per_sector}
                 onChange={(e) => setConfig(prev => ({ ...prev, max_stocks_per_sector: parseInt(e.target.value) || 2 }))}
@@ -844,12 +850,60 @@ const Settings = () => {
                   endAdornment: <InputAdornment position="end">stocks</InputAdornment>,
                 }}
                 inputProps={{ min: 1, max: 10, step: 1 }}
-                helperText="Maximum number of stocks allowed in any single parent sector (e.g., Auto, IT, Pharma)"
+                helperText="Maximum stocks allowed in a single child sector (e.g., IT Services, Auto Components)"
                 sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
               />
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField
+                fullWidth
+                label="Max Stocks per Parent Sector"
+                type="number"
+                value={config.max_stocks_per_parent_sector}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_stocks_per_parent_sector: parseInt(e.target.value) || 4 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">stocks</InputAdornment>,
+                }}
+                inputProps={{ min: 1, max: 20, step: 1 }}
+                helperText="Maximum stocks allowed in a single parent sector (e.g., Auto, IT, Pharma)"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField
+                fullWidth
+                label="Max % in One Parent Sector"
+                type="number"
+                value={config.max_parent_sector_pct}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_parent_sector_pct: parseFloat(e.target.value) || 15 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                inputProps={{ min: 1, max: 100, step: 0.5 }}
+                helperText="Maximum total allocation allowed in any parent sector"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField
+                fullWidth
+                label="Max % in One Child Sector"
+                type="number"
+                value={config.max_child_sector_pct}
+                onChange={(e) => setConfig(prev => ({ ...prev, max_child_sector_pct: parseFloat(e.target.value) || 8 }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                }}
+                inputProps={{ min: 1, max: 100, step: 0.5 }}
+                helperText="Maximum total allocation allowed in any child sector"
+                sx={{ bgcolor: 'background.paper', borderRadius: 1 }}
+              />
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={4}>
               <TextField
                 fullWidth
                 label="Max Total Stocks in Portfolio"

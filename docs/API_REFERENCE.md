@@ -229,7 +229,7 @@ Refresh current prices for **all** tracked stocks (Stock Tracker UI: **Refresh P
 
 **Process:**
 - Iterates through all stocks
-- For **.NS** / **.BO**: Google Finance → Moneycontrol → Investing.com, then NSE API → Yahoo Finance if needed
+- For each symbol: **Yahoo** → **Screener** → **Google Finance** → **NSE API** (last)
 - Updates **`current_price`** and **`last_updated`** only (does **not** call Screener; **`day_change_pct`** is unchanged — use **POST** `/stocks/refresh-day-change` or fetch-details)
 
 **Time:** Faster than when Screener ran on every symbol; scales with number of stocks and source latency
@@ -240,7 +240,7 @@ Refresh current prices for **all** tracked stocks (Stock Tracker UI: **Refresh P
 
 **POST** `/stocks/refresh-day-change`
 
-For each tracked **.NS** / **.BO** symbol, loads the Screener company page and updates **`day_change_pct`** when parsed. Uses a short delay between requests. Non-Indian symbols are skipped.
+For each tracked **.NS** / **.BO** symbol, updates **`day_change_pct`** using the same chain as price refresh: **Yahoo → Screener → Google Finance → NSE**. Uses a short delay between requests. Non-Indian symbols are skipped.
 
 **Response:**
 ```json

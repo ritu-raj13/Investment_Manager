@@ -18,6 +18,7 @@ import {
   TableHead,
   TableRow,
   Typography,
+  Stack,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
@@ -51,6 +52,7 @@ const RebalancingRecommendations = () => {
   })}`;
 
   const actions = data?.actionable_recommendations || [];
+  const blockedActions = data?.blocked_recommendations || [];
   const topActions = actions.slice(0, 3);
 
   const severityColor = (severity) => {
@@ -88,6 +90,28 @@ const RebalancingRecommendations = () => {
   if (error) return <Alert severity="error">{error}</Alert>;
 
   const summary = data?.summary_metrics || {};
+  const renderBlockerChips = (action) => {
+    const domains = action?.blocker_domains || [];
+    const hasParent = domains.some((d) => d.includes('parent_sector'));
+    const hasChild = domains.some((d) => d.includes('child_sector'));
+    return (
+      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+        {hasParent && <Chip size="small" color="error" label="Parent Sector Block" />}
+        {hasChild && <Chip size="small" color="error" label="Child Sector Block" />}
+        {domains
+          .filter((d) => !d.includes('parent_sector') && !d.includes('child_sector'))
+          .map((d) => (
+            <Chip
+              key={d}
+              size="small"
+              color="warning"
+              label={d.replaceAll('_', ' ')}
+              sx={{ textTransform: 'capitalize' }}
+            />
+          ))}
+      </Stack>
+    );
+  };
 
   return (
     <Box>
@@ -126,8 +150,8 @@ const RebalancingRecommendations = () => {
         <Grid item xs={12} md={3}>
           <Card sx={{ borderRadius: 3 }}>
             <CardContent>
-              <Typography variant="body2" color="text.secondary">Capital At Risk</Typography>
-              <Typography variant="h6" fontWeight="bold">{formatCurrency(summary.capital_at_risk_inr || 0)}</Typography>
+              <Typography variant="body2" color="text.secondary">Blocked Adds</Typography>
+              <Typography variant="h5" fontWeight="bold" color="error.main">{summary.blocked_actions || 0}</Typography>
             </CardContent>
           </Card>
         </Grid>
@@ -169,7 +193,7 @@ const RebalancingRecommendations = () => {
 
       <Accordion defaultExpanded>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography fontWeight="bold">All Actionable Recommendations ({actions.length})</Typography>
+          <Typography fontWeight="bold">Actionable Recommendations ({actions.length})</Typography>
         </AccordionSummary>
         <AccordionDetails>
           {actions.length === 0 ? (
@@ -220,6 +244,62 @@ const RebalancingRecommendations = () => {
         </AccordionDetails>
       </Accordion>
 
+      <Accordion sx={{ mt: 2 }} defaultExpanded={blockedActions.length > 0}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <Typography fontWeight="bold">Blocked Recommendations ({blockedActions.length})</Typography>
+        </AccordionSummary>
+        <AccordionDetails>
+          {blockedActions.length === 0 ? (
+            <Typography color="text.secondary">No blocked add recommendations.</Typography>
+          ) : (
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Priority</TableCell>
+                    <TableCell>Recommendation</TableCell>
+                    <TableCell>Signal</TableCell>
+                    <TableCell>Blockers</TableCell>
+                    <TableCell align="right">Impact (Rs.)</TableCell>
+                    <TableCell align="right">Impact %</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {blockedActions.map((action) => (
+                    <TableRow key={action.id} hover>
+                      <TableCell>#{action.priority_rank}</TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight="bold">{action.title}</Typography>
+                        <Typography variant="caption" color="text.secondary">{action.why}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          size="small"
+                          label={getActionSignal(action).label}
+                          color={getActionSignal(action).color}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {renderBlockerChips(action)}
+                      </TableCell>
+                      <TableCell align="right">{formatCurrency(action.impact_amount_inr)}</TableCell>
+                      <TableCell align="right">
+                        {action.impact_pct != null ? `${Number(action.impact_pct).toFixed(2)}%` : '-'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+          {blockedActions.length > 0 && (
+            <Alert severity="warning" sx={{ mt: 2 }}>
+              Resolve blocker breaches first, then revisit blocked add actions.
+            </Alert>
+          )}
+        </AccordionDetails>
+      </Accordion>
+
       <Accordion sx={{ mt: 2 }}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <Typography fontWeight="bold">Supporting Insights</Typography>
@@ -252,6 +332,43 @@ const RebalancingRecommendations = () => {
               </Paper>
             </Grid>
           </Grid>
+
+          <Grid container spacing={2} sx={{ mt: 0.5 }}>
+            <Grid item xs={12} md={6}>
+              <Paper sx={{ p: 2, borderRadius: 2 }}>
+                <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                  Child Sector Limits ({data?.sector_rebalancing?.length || 0})
+                </Typography>
+                {(data?.sector_rebalancing || []).filter((row) => row.status !== 'balanced').slice(0, 8).map((row) => (
+                  <Typography key={row.sector} variant="body2" color="text.secondary">
+                    {row.sector}: {row.num_stocks}/{row.max_stocks_allowed} stocks
+                  </Typography>
+                ))}
+                {(data?.sector_rebalancing || []).every((row) => row.status === 'balanced') && (
+                  <Typography variant="body2" color="text.secondary">No child-sector limit breaches.</Typography>
+                )}
+              </Paper>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Paper sx={{ p: 2, borderRadius: 2 }}>
+                <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                  Parent Sector Limits ({data?.parent_sector_rebalancing?.length || 0})
+                </Typography>
+                {(data?.parent_sector_rebalancing || []).filter((row) => row.status !== 'balanced').slice(0, 8).map((row) => (
+                  <Typography key={row.parent_sector} variant="body2" color="text.secondary">
+                    {row.parent_sector}: {row.num_stocks}/{row.max_stocks_allowed} stocks
+                  </Typography>
+                ))}
+                {(data?.parent_sector_rebalancing || []).every((row) => row.status === 'balanced') && (
+                  <Typography variant="body2" color="text.secondary">No parent-sector limit breaches.</Typography>
+                )}
+              </Paper>
+            </Grid>
+          </Grid>
+
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            Capital at risk (critical/high actionable): <strong>{formatCurrency(summary.capital_at_risk_inr || 0)}</strong>
+          </Typography>
 
           {(summary.total_actions || 0) > 0 && (
             <Alert severity="warning" sx={{ mt: 2 }}>

@@ -6,7 +6,6 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from datetime import datetime, timezone
 import time
-import yfinance as yf
 from typing import List, Dict, Optional
 import os
 import json
@@ -34,46 +33,18 @@ from utils import (
     calculate_portfolio_xirr,
     auto_backup_on_startup
 )
-from services import get_nse_price, get_nse_day_change_pct, get_scraped_price, get_stock_details
+from services import (
+    CHAIN_LABEL,
+    fetch_stock_day_change_pct,
+    fetch_stock_price,
+    get_stock_details,
+)
 from services.mf_api import fetch_mf_nav_by_name, fetch_mf_nav, get_mf_scheme_details
 from services.screener_parser import (
     classify_market_cap_tier,
-    fetch_market_cap_rank_thresholds,
     fetch_company_supplement,
+    fetch_market_cap_rank_thresholds,
 )
-
-
-def _yahoo_history_last_close(symbol: str) -> Optional[float]:
-    """Last daily close from Yahoo; few requests to reduce rate-limit noise vs many short periods."""
-    try:
-        t = yf.Ticker(symbol)
-        hist = t.history(period='1mo', auto_adjust=False)
-        if hist is None or hist.empty:
-            hist = t.history(period='3mo', auto_adjust=False)
-        if hist is not None and not hist.empty:
-            return round(float(hist['Close'].iloc[-1]), 2)
-    except Exception as e:
-        print(f"[WARN] Yahoo price failed for {symbol}: {e}")
-    return None
-
-
-def _yahoo_day_change_pct(symbol: str) -> Optional[float]:
-    """Prior row vs last close % from daily bars (fallback when Screener has no 1D %)."""
-    try:
-        t = yf.Ticker(symbol)
-        hist = t.history(period='10d', auto_adjust=False)
-        if hist is None or hist.empty or len(hist) < 2:
-            hist = t.history(period='3mo', auto_adjust=False)
-        if hist is None or hist.empty or len(hist) < 2:
-            return None
-        c = hist['Close'].astype(float)
-        last = float(c.iloc[-1])
-        prev = float(c.iloc[-2])
-        if prev > 0:
-            return (last - prev) / prev * 100.0
-    except Exception as e:
-        print(f"[WARN] Yahoo 1D%% failed for {symbol}: {e}")
-    return None
 
 
 # Initialize Flask app
@@ -108,6 +79,7 @@ class Stock(db.Model):
     name = db.Column(db.String(100), nullable=False)
     group_name = db.Column(db.String(50))  # e.g., "Bull Run", "Cup with Handle"
     sector = db.Column(db.String(100))  # e.g., "FMCG, Auto", "Banking"
+    parent_sector = db.Column(db.String(100))  # e.g., "Automobile & Ancillaries"
     market_cap = db.Column(db.String(20))  # "Small", "Mid", "Large"
     buy_zone_price = db.Column(db.String(50))  # Support ranges like "250-300" or exact "250"
     sell_zone_price = db.Column(db.String(50))  # Support ranges like "700-800" or exact "750"
@@ -125,6 +97,7 @@ class Stock(db.Model):
             'name': self.name,
             'group_name': self.group_name,
             'sector': self.sector,
+            'parent_sector': self.parent_sector,
             'market_cap': self.market_cap,
             'buy_zone_price': self.buy_zone_price,
             'sell_zone_price': self.sell_zone_price,
@@ -198,7 +171,10 @@ class PortfolioSettings(db.Model):
     max_micro_cap_portfolio_pct = db.Column(db.Float, default=10.0)  # Max total % in Micro Cap
     
     # Overall limits
-    max_stocks_per_sector = db.Column(db.Integer, default=2)  # Max number of stocks per parent sector
+    max_stocks_per_sector = db.Column(db.Integer, default=2)  # Max number of stocks per child sector
+    max_stocks_per_parent_sector = db.Column(db.Integer, default=4)  # Max number of stocks per parent sector
+    max_parent_sector_pct = db.Column(db.Float, default=15.0)  # Max total % in one parent sector
+    max_child_sector_pct = db.Column(db.Float, default=8.0)  # Max total % in one child sector
     max_total_stocks = db.Column(db.Integer, default=30)  # Max total stocks in portfolio
     
     # Screener-derived MC cutoffs (Rs. Cr) for Large/Mid/Small/Micro (ranks 100 / 250 / 500)
@@ -231,31 +207,15 @@ class PortfolioSettings(db.Model):
             'max_micro_cap_portfolio_pct': self.max_micro_cap_portfolio_pct,
             # Overall limits
             'max_stocks_per_sector': self.max_stocks_per_sector,
+            'max_stocks_per_parent_sector': self.max_stocks_per_parent_sector,
+            'max_parent_sector_pct': self.max_parent_sector_pct,
+            'max_child_sector_pct': self.max_child_sector_pct,
             'max_total_stocks': self.max_total_stocks,
             # Market cap tier thresholds (Rs. Cr)
             'mc_threshold_rank_100': self.mc_threshold_rank_100,
             'mc_threshold_rank_250': self.mc_threshold_rank_250,
             'mc_threshold_rank_500': self.mc_threshold_rank_500,
             'mc_thresholds_updated_at': self.mc_thresholds_updated_at.isoformat() if self.mc_thresholds_updated_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
-        }
-
-
-class ParentSectorMapping(db.Model):
-    __tablename__ = 'parent_sector_mappings'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    sector_name = db.Column(db.String(100), nullable=False, unique=True, index=True)  # Child sector (e.g., "Auto Components")
-    parent_sector = db.Column(db.String(100), nullable=False, index=True)  # Parent sector (e.g., "Auto")
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-    
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'sector_name': self.sector_name,
-            'parent_sector': self.parent_sector,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
@@ -971,6 +931,28 @@ def _market_cap_tier_from_details(details):
     )
 
 
+def _to_market_cap_bucket_label(tier: Optional[str]) -> Optional[str]:
+    """Normalize Screener tier label (e.g., 'Large Cap') to stock bucket value ('Large')."""
+    if not tier:
+        return None
+    return str(tier).replace(' Cap', '').strip()
+
+
+def _fetch_market_cap_cr_with_retries(symbol: str, retries: int = 3, delay_sec: float = 0.35) -> Optional[float]:
+    """Best-effort Screener market-cap fetch with small retry window."""
+    for attempt in range(1, retries + 1):
+        try:
+            supplement = fetch_company_supplement(symbol) or {}
+            market_cap_cr = supplement.get('market_cap_cr')
+            if market_cap_cr is not None:
+                return float(market_cap_cr)
+        except Exception:
+            pass
+        if attempt < retries:
+            time.sleep(delay_sec)
+    return None
+
+
 # ============================================================================
 # Stock Tracking Routes (Auth required)
 # ============================================================================
@@ -1002,14 +984,15 @@ def create_stock():
     if existing_stock:
         return jsonify({'error': 'Stock with this symbol already exists'}), 400
     
-    # Auto-fetch name, price, 1D change, sector, market cap tier from Screener / scrapers if missing
+    # Auto-fetch name, price, 1D change, sector, parent sector, market cap tier from Screener / scrapers if missing
     stock_name = data.get('name', '').strip()
     stock_price = data.get('current_price')
     day_change = data.get('day_change_pct')
     stock_sector = (data.get('sector') or '').strip() or None
+    stock_parent_sector = (data.get('parent_sector') or '').strip() or None
     stock_market_cap = (data.get('market_cap') or '').strip() or None
     
-    if not stock_name or not stock_price or day_change is None or not stock_sector or not stock_market_cap:
+    if not stock_name or not stock_price or day_change is None or not stock_sector or not stock_parent_sector or not stock_market_cap:
         try:
             details = get_stock_details(data['symbol'].upper())
             if details:
@@ -1021,8 +1004,10 @@ def create_stock():
                     day_change = details['day_change_pct']
                 if not stock_sector and details.get('sector'):
                     stock_sector = details['sector']
+                if not stock_parent_sector and details.get('parent_sector'):
+                    stock_parent_sector = details['parent_sector']
                 if not stock_market_cap:
-                    tier = _market_cap_tier_from_details(details)
+                    tier = _to_market_cap_bucket_label(_market_cap_tier_from_details(details))
                     if tier:
                         stock_market_cap = tier
                 print(f"[OK] Auto-fetched details for {data['symbol']}: {stock_name} @ Rs.{stock_price} ({day_change:+.2f}%)" if day_change is not None else f"[OK] Auto-fetched details for {data['symbol']}: {stock_name} @ Rs.{stock_price}")
@@ -1038,6 +1023,7 @@ def create_stock():
         name=stock_name,
         group_name=data.get('group_name'),
         sector=stock_sector or data.get('sector'),
+        parent_sector=stock_parent_sector or data.get('parent_sector'),
         market_cap=stock_market_cap or data.get('market_cap'),
         buy_zone_price=data.get('buy_zone_price'),
         sell_zone_price=data.get('sell_zone_price'),
@@ -1048,35 +1034,21 @@ def create_stock():
         notes=data.get('notes')
     )
     
-    # Fetch current price automatically (only if still not available)
     if not stock.current_price:
-        # Indian: NSE first (stable JSON), then HTML scrapers, then Yahoo.
-        if stock.symbol.endswith('.NS') or stock.symbol.endswith('.BO'):
-            try:
-                price = get_nse_price(stock.symbol)
-                if price:
-                    stock.current_price = round(price, 2)
-                    print(f"[OK] NSE API: Fetched {stock.symbol}: Rs.{stock.current_price}")
-            except Exception:
-                print(f"[WARN] NSE API failed for {stock.symbol}")
-            if not stock.current_price:
-                try:
-                    price = get_scraped_price(stock.symbol)
-                    if price:
-                        stock.current_price = round(price, 2)
-                        print(f"[OK] Web Scraper: Fetched {stock.symbol}: Rs.{stock.current_price}")
-                except Exception as e:
-                    print(f"[WARN] Web scraper failed for {stock.symbol}: {str(e)}")
-        
-        if not stock.current_price:
-            y_close = _yahoo_history_last_close(stock.symbol)
-            if y_close is not None:
-                stock.current_price = y_close
-                print(f"[OK] Yahoo Finance: Fetched {stock.symbol}: Rs.{stock.current_price}")
-        
-        # If all methods failed, log it
-        if not stock.current_price:
-            print(f"[FAIL] Could not fetch price for {stock.symbol} - all methods failed")
+        price, src = fetch_stock_price(stock.symbol, quiet=True)
+        if price is not None:
+            stock.current_price = price
+            print(f"[OK] PRICE ({src}): Fetched {stock.symbol} -> Rs.{stock.current_price}")
+        else:
+            print(f"[FAIL] Could not fetch price for {stock.symbol} ({CHAIN_LABEL})")
+
+    if stock.day_change_pct is None and (
+        stock.symbol.endswith(".NS") or stock.symbol.endswith(".BO")
+    ):
+        pct, src = fetch_stock_day_change_pct(stock.symbol, quiet=True)
+        if pct is not None:
+            stock.day_change_pct = float(pct)
+            print(f"[OK] 1D ({src}): Fetched {stock.symbol} -> {stock.day_change_pct:+.2f}%")
     
     db.session.add(stock)
     db.session.commit()
@@ -1094,6 +1066,7 @@ def update_stock(stock_id):
     stock.name = data.get('name', stock.name)
     stock.group_name = data.get('group_name', stock.group_name)
     stock.sector = data.get('sector', stock.sector)
+    stock.parent_sector = data.get('parent_sector', stock.parent_sector)
     stock.market_cap = data.get('market_cap', stock.market_cap)
     stock.buy_zone_price = data.get('buy_zone_price', stock.buy_zone_price)
     stock.sell_zone_price = data.get('sell_zone_price', stock.sell_zone_price)
@@ -1124,74 +1097,59 @@ def delete_stock(stock_id):
 @app.route('/api/stocks/refresh-prices', methods=['POST'])
 @api_login_required
 def refresh_stock_prices():
-    """Refresh current prices for all tracked stocks"""
+    """Refresh current prices: Yahoo → Screener → Google → NSE."""
     stocks = Stock.query.all()
+    total = len(stocks)
     updated_count = 0
     failed_count = 0
-    
-    for stock in stocks:
-        updated = False
-        
-        # Indian stocks: NSE first (reliable), then HTML scrapers, then Yahoo (no Screener here).
-        if stock.symbol.endswith('.NS') or stock.symbol.endswith('.BO'):
-            time.sleep(0.08)
-            try:
-                price = get_nse_price(stock.symbol)
-                if price:
-                    stock.current_price = round(price, 2)
-                    stock.last_updated = datetime.now(timezone.utc)
-                    updated = True
-                    print(f"[OK] NSE API: Updated {stock.symbol} -> Rs.{stock.current_price}")
-            except Exception as e:
-                print(f"[WARN] NSE API failed for {stock.symbol}: {e}")
-            if not updated:
-                try:
-                    price = get_scraped_price(stock.symbol)
-                    if price:
-                        stock.current_price = round(price, 2)
-                        stock.last_updated = datetime.now(timezone.utc)
-                        updated = True
-                        print(f"[OK] Scraper: Updated {stock.symbol} -> Rs.{stock.current_price}")
-                except Exception:
-                    print(f"[WARN] Scraper failed for {stock.symbol}")
-        
-        # Fallback to Yahoo Finance
-        if not updated:
-            y_close = _yahoo_history_last_close(stock.symbol)
-            if y_close is not None:
-                stock.current_price = y_close
+    source_counts = {"Yahoo": 0, "Screener": 0, "Google": 0, "NSE": 0}
+
+    print(f"[PRICE] Starting price refresh for {total} stocks ({CHAIN_LABEL})…")
+
+    for idx, stock in enumerate(stocks, start=1):
+        sym = stock.symbol or ""
+        print(f"[PRICE] ({idx}/{total}) {sym} …")
+        try:
+            if sym.endswith(".NS") or sym.endswith(".BO"):
+                time.sleep(0.12)
+            price, source = fetch_stock_price(sym, quiet=True)
+            if price is not None:
+                stock.current_price = price
                 stock.last_updated = datetime.now(timezone.utc)
-                updated = True
-                print(f"[OK] Yahoo: Updated {stock.symbol} -> Rs.{stock.current_price}")
-        
-        if updated:
-            updated_count += 1
-        else:
+                updated_count += 1
+                if source in source_counts:
+                    source_counts[source] += 1
+                print(f"[OK] PRICE ({source}): {sym} -> Rs.{stock.current_price}")
+            else:
+                failed_count += 1
+                print(f"[FAIL] PRICE: {sym} — no price ({CHAIN_LABEL})")
+        except Exception as e:
             failed_count += 1
-            print(f"[FAIL] Could not update {stock.symbol}")
-    
+            print(f"[FAIL] PRICE: {sym}: {e}")
+
     db.session.commit()
-    
-    # Return standardized response
-    return jsonify(format_refresh_response(len(stocks), updated_count, failed_count))
+
+    sc = ", ".join(f"{k}: {v}" for k, v in source_counts.items())
+    print(
+        f"[PRICE] Done: {updated_count}/{total} updated, {failed_count} failed ({sc})"
+    )
+    return jsonify(format_refresh_response(total, updated_count, failed_count))
 
 
 @app.route('/api/stocks/refresh-day-change', methods=['POST'])
 @api_login_required
 def refresh_stock_day_change():
-    """Update day_change_pct for .NS / .BO: Screener, then NSE pChange, then Yahoo bars; polite delay + logs."""
+    """Update day_change_pct for .NS / .BO: Yahoo → Screener → Google → NSE."""
     stocks = Stock.query.all()
     updated = 0
     failed = 0
     skipped = 0
     errors_sample = []
+    source_counts = {"Yahoo": 0, "Screener": 0, "Google": 0, "NSE": 0}
 
     indian = [s for s in stocks if (s.symbol or '').endswith(('.NS', '.BO'))]
     n_indian = len(indian)
-    print(
-        f"[1D] Starting day-change refresh for {n_indian} Indian symbols "
-        f"(Screener → NSE → Yahoo)…"
-    )
+    print(f"[1D] Starting day-change refresh for {n_indian} Indian symbols ({CHAIN_LABEL})…")
 
     idx = 0
     for stock in stocks:
@@ -1203,23 +1161,16 @@ def refresh_stock_day_change():
         try:
             time.sleep(0.55)
             print(f"[1D] ({idx}/{n_indian}) {sym} …")
-            sup = fetch_company_supplement(sym)
-            pct = sup.get('day_change_pct') if sup else None
-            source = 'Screener'
-            if pct is None and sym.endswith('.NS'):
-                time.sleep(0.1)
-                pct = get_nse_day_change_pct(sym)
-                source = 'NSE'
-            if pct is None:
-                pct = _yahoo_day_change_pct(sym)
-                source = 'Yahoo'
+            pct, source = fetch_stock_day_change_pct(sym, quiet=True)
             if pct is not None:
                 stock.day_change_pct = float(pct)
                 updated += 1
+                if source in source_counts:
+                    source_counts[source] += 1
                 print(f"[OK] 1D ({source}): {sym} -> {stock.day_change_pct:+.2f}%")
             else:
                 failed += 1
-                msg = f"{sym}: no day change from Screener, NSE, or Yahoo"
+                msg = f"{sym}: no day change ({CHAIN_LABEL})"
                 print(f"[FAIL] 1D: {msg}")
                 if len(errors_sample) < 8:
                     errors_sample.append(msg)
@@ -1231,6 +1182,8 @@ def refresh_stock_day_change():
                 errors_sample.append(err)
 
     db.session.commit()
+    sc = ", ".join(f"{k}: {v}" for k, v in source_counts.items())
+    print(f"[1D] Done: {updated}/{n_indian} updated, {failed} failed ({sc})")
     return jsonify({
         'message': (
             f'1D change refreshed: {updated} updated, {failed} failed, '
@@ -1240,6 +1193,90 @@ def refresh_stock_day_change():
         'failed': failed,
         'skipped': skipped,
         'errors_sample': errors_sample,
+    })
+
+
+@app.route('/api/stocks/refresh-market-cap', methods=['POST'])
+@api_login_required
+def refresh_stock_market_caps():
+    """
+    Recompute stock market-cap buckets using latest MC thresholds from settings.
+    Buckets are saved as: Large / Mid / Small / Micro.
+    """
+    settings = PortfolioSettings.query.first()
+    if not settings:
+        return jsonify({'error': 'Portfolio settings not found. Save settings first.'}), 400
+
+    if (
+        settings.mc_threshold_rank_100 is None
+        or settings.mc_threshold_rank_250 is None
+        or settings.mc_threshold_rank_500 is None
+    ):
+        return jsonify({
+            'error': 'MC thresholds missing. Fetch MC Thresholds in Stock Settings first.'
+        }), 400
+
+    stocks = Stock.query.all()
+    total = len(stocks)
+    updated = 0
+    unchanged = 0
+    failed = 0
+    skipped = 0
+    unavailable = 0
+
+    print(f"[MC] Starting market-cap bucket refresh for {total} stocks...")
+    for idx, stock in enumerate(stocks, start=1):
+        symbol = (stock.symbol or '').upper().strip()
+        if not symbol.endswith('.NS') and not symbol.endswith('.BO'):
+            skipped += 1
+            continue
+        try:
+            time.sleep(0.2)
+            print(f"[MC] ({idx}/{total}) {symbol} ...")
+            market_cap_cr = _fetch_market_cap_cr_with_retries(symbol, retries=3, delay_sec=0.35)
+            if market_cap_cr is None:
+                unavailable += 1
+                print(f"[WARN] MC: {symbol} - market_cap_cr unavailable after retries")
+                continue
+
+            tier = classify_market_cap_tier(
+                market_cap_cr,
+                settings.mc_threshold_rank_100,
+                settings.mc_threshold_rank_250,
+                settings.mc_threshold_rank_500,
+            )
+            bucket = _to_market_cap_bucket_label(tier)
+            if not bucket:
+                failed += 1
+                print(f"[FAIL] MC: {symbol} - classification failed")
+                continue
+
+            if stock.market_cap != bucket:
+                stock.market_cap = bucket
+                updated += 1
+                print(f"[OK] MC: {symbol} -> {bucket}")
+            else:
+                unchanged += 1
+        except Exception as e:
+            failed += 1
+            print(f"[FAIL] MC: {symbol} - {e}")
+
+    db.session.commit()
+    print(
+        f"[MC] Done: {updated} updated, {unchanged} unchanged, "
+        f"{unavailable} unavailable, {failed} failed, {skipped} skipped"
+    )
+    return jsonify({
+        'message': (
+            f'Market-cap refresh complete: {updated} updated, {unchanged} unchanged, '
+            f'{unavailable} unavailable, {failed} failed, {skipped} skipped.'
+        ),
+        'total': total,
+        'updated': updated,
+        'unchanged': unchanged,
+        'unavailable': unavailable,
+        'failed': failed,
+        'skipped': skipped,
     })
 
 
@@ -1254,7 +1291,7 @@ def get_stock_groups():
 @app.route('/api/stocks/sectors', methods=['GET'])
 @api_login_required
 def get_stock_sectors():
-    """Get all unique stock sectors"""
+    """Get all unique stock child sectors"""
     sectors = db.session.query(Stock.sector).distinct().all()
     return jsonify([s[0] for s in sectors if s[0]])
 
@@ -1287,7 +1324,7 @@ def fetch_stock_details(symbol):
         
         # Set default status based on holdings
         default_status = 'HOLD' if total_quantity > 0 else 'WATCHING'
-        mc_tier = _market_cap_tier_from_details(details)
+        mc_tier = _to_market_cap_bucket_label(_market_cap_tier_from_details(details))
 
         return jsonify({
             'symbol': symbol,
@@ -1298,6 +1335,7 @@ def fetch_stock_details(symbol):
             'in_holdings': total_quantity > 0,
             'quantity': total_quantity if total_quantity > 0 else None,
             'sector': details.get('sector'),
+            'parent_sector': details.get('parent_sector'),
             'sector_peer_raw': details.get('sector_peer_raw'),
             'market_cap_cr': details.get('market_cap_cr'),
             'market_cap': mc_tier,
@@ -1750,6 +1788,12 @@ def update_portfolio_settings():
     # Overall limits
     if 'max_stocks_per_sector' in data:
         settings.max_stocks_per_sector = int(data['max_stocks_per_sector'])
+    if 'max_stocks_per_parent_sector' in data:
+        settings.max_stocks_per_parent_sector = int(data['max_stocks_per_parent_sector'])
+    if 'max_parent_sector_pct' in data:
+        settings.max_parent_sector_pct = float(data['max_parent_sector_pct'])
+    if 'max_child_sector_pct' in data:
+        settings.max_child_sector_pct = float(data['max_child_sector_pct'])
     if 'max_total_stocks' in data:
         settings.max_total_stocks = int(data['max_total_stocks'])
     
@@ -1830,10 +1874,46 @@ def _run_sqlite_migrations_after_create_all():
         print(f"[STARTUP] SQLite migration failed: {e}")
 
 
+def _backfill_missing_parent_sectors():
+    """Best-effort fill for existing stocks that don't have parent_sector yet."""
+    try:
+        missing = Stock.query.filter(
+            Stock.parent_sector.is_(None),
+            Stock.symbol.isnot(None),
+        ).all()
+        if not missing:
+            return
+
+        updated = 0
+        for stock in missing:
+            symbol = (stock.symbol or "").upper().strip()
+            if not symbol:
+                continue
+            try:
+                details = get_stock_details(symbol)
+                if details and details.get('parent_sector'):
+                    stock.parent_sector = details['parent_sector']
+                    # Backfill child sector as well if it is currently blank.
+                    if not stock.sector and details.get('sector'):
+                        stock.sector = details['sector']
+                    updated += 1
+            except Exception as inner_e:
+                print(f"[BACKFILL] Failed to fetch parent sector for {symbol}: {inner_e}")
+            time.sleep(0.08)
+
+        if updated:
+            db.session.commit()
+            print(f"[BACKFILL] Updated parent_sector for {updated} stock(s)")
+    except Exception as e:
+        db.session.rollback()
+        print(f"[BACKFILL] Parent sector backfill failed: {e}")
+
+
 # Initialize database tables on startup
 with app.app_context():
     db.create_all()
     _run_sqlite_migrations_after_create_all()
+    _backfill_missing_parent_sectors()
 
 
 # ============================================================================
@@ -1883,6 +1963,7 @@ def get_analytics_dashboard():
                     'gain_loss_pct': gain_loss_pct,
                     'day_change_pct': stock.day_change_pct if stock else None,
                     'sector': stock.sector if stock else None,
+                    'parent_sector': stock.parent_sector if stock else None,
                     'market_cap': stock.market_cap if stock else None
                 })
         
@@ -1932,6 +2013,7 @@ def get_analytics_dashboard():
                             'current_price': current,
                             'zone': stock.buy_zone_price,
                             'sector': stock.sector,
+                            'parent_sector': stock.parent_sector,
                             'market_cap': stock.market_cap
                         })
                     elif buy_max < current <= buy_max * 1.03:  # Within 3% above buy zone
@@ -1942,6 +2024,7 @@ def get_analytics_dashboard():
                             'zone': stock.buy_zone_price,
                             'distance_pct': ((current - buy_max) / buy_max * 100),
                             'sector': stock.sector,
+                            'parent_sector': stock.parent_sector,
                             'market_cap': stock.market_cap
                         })
             
@@ -1956,6 +2039,7 @@ def get_analytics_dashboard():
                             'current_price': current,
                             'zone': stock.sell_zone_price,
                             'sector': stock.sector,
+                            'parent_sector': stock.parent_sector,
                             'market_cap': stock.market_cap
                         })
                     elif sell_min * 0.97 <= current < sell_min:  # Within 3% below sell zone
@@ -1966,6 +2050,7 @@ def get_analytics_dashboard():
                             'zone': stock.sell_zone_price,
                             'distance_pct': ((sell_min - current) / sell_min * 100),
                             'sector': stock.sector,
+                            'parent_sector': stock.parent_sector,
                             'market_cap': stock.market_cap
                         })
             
@@ -1980,6 +2065,7 @@ def get_analytics_dashboard():
                             'current_price': current,
                             'zone': stock.average_zone_price,
                             'sector': stock.sector,
+                            'parent_sector': stock.parent_sector,
                             'market_cap': stock.market_cap
                         })
                     elif avg_max < current <= avg_max * 1.03:  # Within 3% above average zone
@@ -1991,6 +2077,7 @@ def get_analytics_dashboard():
                             'distance_pct': ((current - avg_max) / avg_max * 100),
                             'distance_type': 'above',
                             'sector': stock.sector,
+                            'parent_sector': stock.parent_sector,
                             'market_cap': stock.market_cap
                         })
                     elif avg_min * 0.97 <= current < avg_min:  # Within 3% below average zone
@@ -2002,6 +2089,7 @@ def get_analytics_dashboard():
                             'distance_pct': ((avg_min - current) / avg_min * 100),
                             'distance_type': 'below',
                             'sector': stock.sector,
+                            'parent_sector': stock.parent_sector,
                             'market_cap': stock.market_cap
                         })
         
@@ -2075,6 +2163,7 @@ def get_health_dashboard():
                     'symbol': symbol,
                     'name': stock.name if stock else '',
                     'sector': stock.sector if stock else None,
+                    'parent_sector': stock.parent_sector if stock else None,
                     'market_cap': stock.market_cap if stock else None,
                     'invested_amount': holding['invested_amount'],
                     'quantity': holding['quantity'],
@@ -2261,6 +2350,7 @@ def _build_recommendation_context():
             'symbol': symbol,
             'name': stock.name if stock else '',
             'sector': stock.sector if stock else None,
+            'parent_sector': stock.parent_sector if stock else None,
             'market_cap': stock.market_cap if stock else None,
             'invested_amount': holding['invested_amount'],
             'quantity': holding['quantity'],
@@ -2309,6 +2399,7 @@ def _build_price_zone_action_items(stocks, holdings_dict):
                     'symbol': stock.symbol,
                     'name': stock.name,
                     'sector': stock.sector,
+                    'parent_sector': stock.parent_sector,
                     'current_price': stock.current_price,
                     'zone': stock.buy_zone_price,
                     'is_held': is_held,
@@ -2320,6 +2411,7 @@ def _build_price_zone_action_items(stocks, holdings_dict):
                     'symbol': stock.symbol,
                     'name': stock.name,
                     'sector': stock.sector,
+                    'parent_sector': stock.parent_sector,
                     'current_price': stock.current_price,
                     'zone': stock.buy_zone_price,
                     'distance_pct': distance_pct,
@@ -2333,6 +2425,7 @@ def _build_price_zone_action_items(stocks, holdings_dict):
                     'symbol': stock.symbol,
                     'name': stock.name,
                     'sector': stock.sector,
+                    'parent_sector': stock.parent_sector,
                     'current_price': stock.current_price,
                     'zone': stock.buy_zone_price,
                     'distance_pct': distance_pct,
@@ -2348,6 +2441,7 @@ def _build_price_zone_action_items(stocks, holdings_dict):
                     'symbol': stock.symbol,
                     'name': stock.name,
                     'sector': stock.sector,
+                    'parent_sector': stock.parent_sector,
                     'current_price': stock.current_price,
                     'zone': stock.sell_zone_price,
                     'is_held': is_held,
@@ -2359,6 +2453,7 @@ def _build_price_zone_action_items(stocks, holdings_dict):
                     'symbol': stock.symbol,
                     'name': stock.name,
                     'sector': stock.sector,
+                    'parent_sector': stock.parent_sector,
                     'current_price': stock.current_price,
                     'zone': stock.sell_zone_price,
                     'distance_pct': distance_pct,
@@ -2374,6 +2469,7 @@ def _build_price_zone_action_items(stocks, holdings_dict):
                     'symbol': stock.symbol,
                     'name': stock.name,
                     'sector': stock.sector,
+                    'parent_sector': stock.parent_sector,
                     'current_price': stock.current_price,
                     'zone': stock.average_zone_price,
                     'is_held': is_held,
@@ -2385,6 +2481,7 @@ def _build_price_zone_action_items(stocks, holdings_dict):
                     'symbol': stock.symbol,
                     'name': stock.name,
                     'sector': stock.sector,
+                    'parent_sector': stock.parent_sector,
                     'current_price': stock.current_price,
                     'zone': stock.average_zone_price,
                     'distance_pct': distance_pct,
@@ -2398,6 +2495,7 @@ def _build_price_zone_action_items(stocks, holdings_dict):
                     'symbol': stock.symbol,
                     'name': stock.name,
                     'sector': stock.sector,
+                    'parent_sector': stock.parent_sector,
                     'current_price': stock.current_price,
                     'zone': stock.average_zone_price,
                     'distance_pct': distance_pct,
@@ -2495,7 +2593,7 @@ def export_stocks_csv():
         # Return empty list if no stocks, not 404
         if not stocks:
             # Create empty CSV with headers
-            df = pd.DataFrame(columns=['id', 'symbol', 'name', 'sector', 'market_cap', 'status'])
+            df = pd.DataFrame(columns=['id', 'symbol', 'name', 'sector', 'parent_sector', 'market_cap', 'status'])
             filename = f'stocks_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
             filepath = os.path.join('exports', filename)
             os.makedirs('exports', exist_ok=True)
@@ -2558,6 +2656,7 @@ def import_stocks_csv():
                     name=row['name'],
                     group_name=row.get('group_name'),
                     sector=row.get('sector'),
+                    parent_sector=row.get('parent_sector'),
                     market_cap=row.get('market_cap'),
                     buy_zone_price=row.get('buy_zone_price'),
                     sell_zone_price=row.get('sell_zone_price'),
