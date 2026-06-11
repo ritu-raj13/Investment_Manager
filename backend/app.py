@@ -24,10 +24,12 @@ from utils import (
     api_login_required, 
     User, 
     verify_credentials,
-    parse_zone, 
+    parse_zone,
+    classify_buy_signal,
+    classify_average_signal,
+    classify_sell_signal,
     calculate_holdings, 
     validate_transaction_data,
-    is_in_zone,
     format_refresh_response,
     clean_symbol,
     calculate_portfolio_xirr,
@@ -1981,118 +1983,8 @@ def get_analytics_dashboard():
                     weighted_change += holding['day_change_pct'] * weight
             portfolio_day_change_pct = weighted_change
         
-        # Get list of symbols currently in holdings (normalize for flexible matching)
-        holding_symbols_normalized = set(normalize_symbol(s) for s in holdings.keys())
-        
-        # Find stocks near buy/sell/average zones (action items)
-        action_items = {
-            'in_buy_zone': [],
-            'in_sell_zone': [],
-            'in_average_zone': [],
-            'near_buy_zone': [],
-            'near_sell_zone': [],
-            'near_average_zone': []
-        }
-        
-        for stock in stocks:
-            if not stock.current_price:
-                continue
-            
-            current = stock.current_price
-            # Flexible symbol matching (check with and without .NS/.BO suffix)
-            is_in_holdings = normalize_symbol(stock.symbol) in holding_symbols_normalized
-            
-            # Check buy zone (only for stocks NOT in holdings)
-            if not is_in_holdings:
-                buy_min, buy_max = parse_zone(stock.buy_zone_price)
-                if buy_min and buy_max:
-                    if buy_min <= current <= buy_max:
-                        action_items['in_buy_zone'].append({
-                            'symbol': stock.symbol,
-                            'name': stock.name,
-                            'current_price': current,
-                            'zone': stock.buy_zone_price,
-                            'sector': stock.sector,
-                            'parent_sector': stock.parent_sector,
-                            'market_cap': stock.market_cap
-                        })
-                    elif buy_max < current <= buy_max * 1.03:  # Within 3% above buy zone
-                        action_items['near_buy_zone'].append({
-                            'symbol': stock.symbol,
-                            'name': stock.name,
-                            'current_price': current,
-                            'zone': stock.buy_zone_price,
-                            'distance_pct': ((current - buy_max) / buy_max * 100),
-                            'sector': stock.sector,
-                            'parent_sector': stock.parent_sector,
-                            'market_cap': stock.market_cap
-                        })
-            
-            # Check sell zone (only for stocks IN holdings)
-            if is_in_holdings:
-                sell_min, sell_max = parse_zone(stock.sell_zone_price)
-                if sell_min and sell_max:
-                    if sell_min <= current <= sell_max:
-                        action_items['in_sell_zone'].append({
-                            'symbol': stock.symbol,
-                            'name': stock.name,
-                            'current_price': current,
-                            'zone': stock.sell_zone_price,
-                            'sector': stock.sector,
-                            'parent_sector': stock.parent_sector,
-                            'market_cap': stock.market_cap
-                        })
-                    elif sell_min * 0.97 <= current < sell_min:  # Within 3% below sell zone
-                        action_items['near_sell_zone'].append({
-                            'symbol': stock.symbol,
-                            'name': stock.name,
-                            'current_price': current,
-                            'zone': stock.sell_zone_price,
-                            'distance_pct': ((sell_min - current) / sell_min * 100),
-                            'sector': stock.sector,
-                            'parent_sector': stock.parent_sector,
-                            'market_cap': stock.market_cap
-                        })
-            
-            # Check average zone (only for stocks IN holdings)
-            if is_in_holdings:
-                avg_min, avg_max = parse_zone(stock.average_zone_price)
-                if avg_min and avg_max:
-                    if avg_min <= current <= avg_max:
-                        action_items['in_average_zone'].append({
-                            'symbol': stock.symbol,
-                            'name': stock.name,
-                            'current_price': current,
-                            'zone': stock.average_zone_price,
-                            'sector': stock.sector,
-                            'parent_sector': stock.parent_sector,
-                            'market_cap': stock.market_cap
-                        })
-                    elif avg_max < current <= avg_max * 1.03:  # Within 3% above average zone
-                        action_items['near_average_zone'].append({
-                            'symbol': stock.symbol,
-                            'name': stock.name,
-                            'current_price': current,
-                            'zone': stock.average_zone_price,
-                            'distance_pct': ((current - avg_max) / avg_max * 100),
-                            'distance_type': 'above',
-                            'sector': stock.sector,
-                            'parent_sector': stock.parent_sector,
-                            'market_cap': stock.market_cap
-                        })
-                    elif avg_min * 0.97 <= current < avg_min:  # Within 3% below average zone
-                        action_items['near_average_zone'].append({
-                            'symbol': stock.symbol,
-                            'name': stock.name,
-                            'current_price': current,
-                            'zone': stock.average_zone_price,
-                            'distance_pct': ((avg_min - current) / avg_min * 100),
-                            'distance_type': 'below',
-                            'sector': stock.sector,
-                            'parent_sector': stock.parent_sector,
-                            'market_cap': stock.market_cap
-                        })
-        
+        action_items = _build_price_zone_action_items(stocks, holdings)
+
         # Count action items
         total_action_items = (len(action_items['in_buy_zone']) +
                              len(action_items['in_sell_zone']) +
@@ -2368,6 +2260,32 @@ def _build_recommendation_context():
     return stocks, holdings_dict, holdings_list, settings, total_target_amount
 
 
+def _zone_action_bucket(zone_kind, signal_tier):
+    if signal_tier == 'near':
+        return f'near_{zone_kind}_zone'
+    return f'in_{zone_kind}_zone'
+
+
+def _append_zone_action_item(action_items, zone_kind, stock, zone_value, is_held, signal):
+    bucket = _zone_action_bucket(zone_kind, signal['tier'])
+    item = {
+        'id': stock.id,
+        'symbol': stock.symbol,
+        'name': stock.name,
+        'sector': stock.sector,
+        'parent_sector': stock.parent_sector,
+        'current_price': stock.current_price,
+        'zone': zone_value,
+        'is_held': is_held,
+        'signal_tier': signal['tier'],
+    }
+    if 'distance_pct' in signal:
+        item['distance_pct'] = signal['distance_pct']
+    if 'distance_type' in signal:
+        item['distance_type'] = signal['distance_type']
+    action_items[bucket].append(item)
+
+
 def _build_price_zone_action_items(stocks, holdings_dict):
     holding_symbols_normalized = set(
         normalize_symbol(symbol)
@@ -2393,115 +2311,27 @@ def _build_price_zone_action_items(stocks, holdings_dict):
 
         if stock.buy_zone_price and not is_held:
             buy_min, buy_max = parse_zone(stock.buy_zone_price)
-            if buy_max and stock.current_price <= buy_max:
-                action_items['in_buy_zone'].append({
-                    'id': stock.id,
-                    'symbol': stock.symbol,
-                    'name': stock.name,
-                    'sector': stock.sector,
-                    'parent_sector': stock.parent_sector,
-                    'current_price': stock.current_price,
-                    'zone': stock.buy_zone_price,
-                    'is_held': is_held,
-                })
-            elif buy_max and stock.current_price <= buy_max * 1.03:
-                distance_pct = ((stock.current_price - buy_max) / buy_max) * 100
-                action_items['near_buy_zone'].append({
-                    'id': stock.id,
-                    'symbol': stock.symbol,
-                    'name': stock.name,
-                    'sector': stock.sector,
-                    'parent_sector': stock.parent_sector,
-                    'current_price': stock.current_price,
-                    'zone': stock.buy_zone_price,
-                    'distance_pct': distance_pct,
-                    'distance_type': 'above',
-                    'is_held': is_held,
-                })
-            elif buy_min and stock.current_price >= buy_min * 0.97 and stock.current_price < buy_min:
-                distance_pct = ((buy_min - stock.current_price) / buy_min) * 100
-                action_items['near_buy_zone'].append({
-                    'id': stock.id,
-                    'symbol': stock.symbol,
-                    'name': stock.name,
-                    'sector': stock.sector,
-                    'parent_sector': stock.parent_sector,
-                    'current_price': stock.current_price,
-                    'zone': stock.buy_zone_price,
-                    'distance_pct': distance_pct,
-                    'distance_type': 'below',
-                    'is_held': is_held,
-                })
+            signal = classify_buy_signal(stock.current_price, buy_min, buy_max)
+            if signal:
+                _append_zone_action_item(
+                    action_items, 'buy', stock, stock.buy_zone_price, is_held, signal
+                )
 
         if stock.sell_zone_price and is_held:
-            sell_min, _ = parse_zone(stock.sell_zone_price)
-            if sell_min and stock.current_price >= sell_min:
-                action_items['in_sell_zone'].append({
-                    'id': stock.id,
-                    'symbol': stock.symbol,
-                    'name': stock.name,
-                    'sector': stock.sector,
-                    'parent_sector': stock.parent_sector,
-                    'current_price': stock.current_price,
-                    'zone': stock.sell_zone_price,
-                    'is_held': is_held,
-                })
-            elif sell_min and stock.current_price >= sell_min * 0.97:
-                distance_pct = ((sell_min - stock.current_price) / sell_min) * 100
-                action_items['near_sell_zone'].append({
-                    'id': stock.id,
-                    'symbol': stock.symbol,
-                    'name': stock.name,
-                    'sector': stock.sector,
-                    'parent_sector': stock.parent_sector,
-                    'current_price': stock.current_price,
-                    'zone': stock.sell_zone_price,
-                    'distance_pct': distance_pct,
-                    'distance_type': 'below',
-                    'is_held': is_held,
-                })
+            sell_min, sell_max = parse_zone(stock.sell_zone_price)
+            signal = classify_sell_signal(stock.current_price, sell_min, sell_max)
+            if signal:
+                _append_zone_action_item(
+                    action_items, 'sell', stock, stock.sell_zone_price, is_held, signal
+                )
 
         if stock.average_zone_price and is_held:
             avg_min, avg_max = parse_zone(stock.average_zone_price)
-            if avg_min and avg_max and avg_min <= stock.current_price <= avg_max:
-                action_items['in_average_zone'].append({
-                    'id': stock.id,
-                    'symbol': stock.symbol,
-                    'name': stock.name,
-                    'sector': stock.sector,
-                    'parent_sector': stock.parent_sector,
-                    'current_price': stock.current_price,
-                    'zone': stock.average_zone_price,
-                    'is_held': is_held,
-                })
-            elif avg_max and stock.current_price <= avg_max * 1.03 and stock.current_price > avg_max:
-                distance_pct = ((stock.current_price - avg_max) / avg_max) * 100
-                action_items['near_average_zone'].append({
-                    'id': stock.id,
-                    'symbol': stock.symbol,
-                    'name': stock.name,
-                    'sector': stock.sector,
-                    'parent_sector': stock.parent_sector,
-                    'current_price': stock.current_price,
-                    'zone': stock.average_zone_price,
-                    'distance_pct': distance_pct,
-                    'distance_type': 'above',
-                    'is_held': is_held,
-                })
-            elif avg_min and stock.current_price >= avg_min * 0.97 and stock.current_price < avg_min:
-                distance_pct = ((avg_min - stock.current_price) / avg_min) * 100
-                action_items['near_average_zone'].append({
-                    'id': stock.id,
-                    'symbol': stock.symbol,
-                    'name': stock.name,
-                    'sector': stock.sector,
-                    'parent_sector': stock.parent_sector,
-                    'current_price': stock.current_price,
-                    'zone': stock.average_zone_price,
-                    'distance_pct': distance_pct,
-                    'distance_type': 'below',
-                    'is_held': is_held,
-                })
+            signal = classify_average_signal(stock.current_price, avg_min, avg_max)
+            if signal:
+                _append_zone_action_item(
+                    action_items, 'average', stock, stock.average_zone_price, is_held, signal
+                )
 
     return action_items
 

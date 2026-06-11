@@ -793,9 +793,15 @@ Stocks currently in or near your defined buy/sell/average zones.
 - Stocks within average price range
 - **Action**: Consider averaging (adding more)
 
-#### Near Zones (Within ±3%)
-- Stocks approaching buy/sell/average zones
-- Early warning to prepare actions
+#### Ideal Zones (best opportunity)
+- **Ideal Buy**: Price below buy zone min (deep discount)
+- **Ideal Avg**: Price below average zone min (no lower floor — deep dips always surface)
+- **Ideal Sell**: Price above sell zone max (blow past target)
+
+#### Near Zones (3% early warning on unfavorable side only)
+- **Near Buy**: Within 3% above buy zone max
+- **Near Sell**: Within 3% below sell zone min
+- **Near Average**: Within 3% above average zone max
 
 #### Edit tracking from zone rows
 - Each stock row in **Price Zone Alert Details** includes an **Edit** control that opens the same add/edit dialog as **Stock Tracking** (`StockEditDialog` in the app), loaded with `GET /api/stocks/:id`.
@@ -863,11 +869,19 @@ Stocks currently in or near your defined buy/sell/average zones.
 - **Market cap tier (Large / Mid / Small / Micro):** Uses three **cutoff values** (market cap in **Rs. Cr**) for the **100th, 250th, and 500th** company in Screener’s “Companies by Market Cap” list (market cap &gt; 0, sorted descending). **Fetch MC Thresholds** on **Settings → Stock Portfolio** loads those three values from Screener (editable in the same place). When adding a stock or using fetch-details, the app compares the company’s Screener **Market Cap** (Cr) to those cutoffs: **Large** if MC ≥ 100th cutoff, **Mid** if ≥ 250th and &lt; 100th, **Small** if ≥ 500th and &lt; 250th, **Micro** if &lt; 500th. If thresholds are not set, tier is left empty.
 
 ### Price Zone Alerts
-Alert thresholds changed to **±3%** (previously ±5%):
+Direction-aware tiers (logic in `backend/utils/zones.py`, `NEAR_ZONE_PCT = 3%`):
 ```
-Near Buy Zone: buy_max × 1.03
-Near Sell Zone: sell_min × 0.97
-Near Average Zone: avg_max × 1.03 / avg_min × 0.97
+Ideal Buy:   price < buy_min (or < buy_max × 0.97 for point zones)
+In Buy:      buy_min ≤ price ≤ buy_max
+Near Buy:    buy_max < price ≤ buy_max × 1.03
+
+Ideal Avg:   price < avg_min (no lower floor)
+In Avg:      avg_min ≤ price ≤ avg_max
+Near Avg:    avg_max < price ≤ avg_max × 1.03
+
+Ideal Sell:  price > sell_max
+In Sell:     sell_min ≤ price ≤ sell_max
+Near Sell:   sell_min × 0.97 ≤ price < sell_min
 ```
 
 ### Status Sync
@@ -880,10 +894,9 @@ Near Average Zone: avg_max × 1.03 / avg_min × 0.97
 ## Alert System
 
 ### Zone Detection
-- **In Buy Zone**: Current price ≤ buy zone max
-- **Near Buy Zone**: Current price within 3% above buy zone max
-- **In Sell Zone**: Current price ≥ sell zone min
-- **Near Sell Zone**: Current price within 3% below sell zone min
+- **Ideal / In / Near** tiers per action type (see Price Zone Alerts above)
+- Buy and average favor lower prices; sell favors higher prices
+- API items include `signal_tier`: `ideal`, `in`, or `near`
 
 ### Recommendations
 - Buy/sell recommendations based on current price vs. zones

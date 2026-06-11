@@ -206,18 +206,22 @@ def identify_stocks_to_add(
 
         in_buy_zone = False
         near_buy_zone = False
+        ideal_buy_zone = False
         current_price = holding.get("current_price")
         if stock_obj and current_price and stock_obj.buy_zone_price:
             try:
-                from utils.zones import parse_zone
+                from utils.zones import parse_zone, classify_buy_signal
 
                 buy_min, buy_max = parse_zone(stock_obj.buy_zone_price)
-                if buy_max and current_price <= buy_max:
-                    in_buy_zone = True
-                elif buy_max and current_price <= buy_max * 1.03:
-                    near_buy_zone = True
-                elif buy_min and buy_min * 0.97 <= current_price < buy_min:
-                    near_buy_zone = True
+                signal = classify_buy_signal(current_price, buy_min, buy_max)
+                if signal:
+                    if signal['tier'] == 'ideal':
+                        ideal_buy_zone = True
+                        in_buy_zone = True
+                    elif signal['tier'] == 'in':
+                        in_buy_zone = True
+                    elif signal['tier'] == 'near':
+                        near_buy_zone = True
             except Exception:
                 pass
 
@@ -234,10 +238,11 @@ def identify_stocks_to_add(
             "current_invested": invested_amount,
             "in_buy_zone": in_buy_zone,
             "near_buy_zone": near_buy_zone,
+            "ideal_buy_zone": ideal_buy_zone,
             "current_price": current_price,
             "reason": f"Under-allocated by {deficit_pct:.1f}%",
         })
-    out.sort(key=lambda item: (not item["in_buy_zone"], -item["add_amount"]))
+    out.sort(key=lambda item: (not item["ideal_buy_zone"], not item["in_buy_zone"], -item["add_amount"]))
     return out
 
 
@@ -535,23 +540,36 @@ def _build_stock_lookup(stocks):
 def _trim_signal(stock_obj, row):
     in_sell_zone = False
     near_sell_zone = False
+    ideal_sell_zone = False
     if stock_obj and stock_obj.sell_zone_price and stock_obj.current_price:
         try:
-            from utils.zones import parse_zone
+            from utils.zones import parse_zone, classify_sell_signal
 
-            sell_min, _ = parse_zone(stock_obj.sell_zone_price)
-            if sell_min and stock_obj.current_price >= sell_min:
-                in_sell_zone = True
-            elif sell_min and stock_obj.current_price >= sell_min * 0.97:
-                near_sell_zone = True
+            sell_min, sell_max = parse_zone(stock_obj.sell_zone_price)
+            signal = classify_sell_signal(stock_obj.current_price, sell_min, sell_max)
+            if signal:
+                if signal['tier'] == 'ideal':
+                    ideal_sell_zone = True
+                    in_sell_zone = True
+                elif signal['tier'] == 'in':
+                    in_sell_zone = True
+                elif signal['tier'] == 'near':
+                    near_sell_zone = True
         except Exception:
             pass
     in_profit = float(row.get("current_value", 0) or 0) > float(row.get("current_invested", 0) or 0)
-    signal_score = (2 if in_sell_zone else 0) + (1 if near_sell_zone else 0) + (1 if in_profit else 0)
+    signal_score = (
+        (3 if ideal_sell_zone else 0)
+        + (2 if in_sell_zone and not ideal_sell_zone else 0)
+        + (1 if near_sell_zone else 0)
+        + (1 if in_profit else 0)
+    )
     return in_sell_zone, near_sell_zone, in_profit, signal_score
 
 
 def _add_signal(row):
+    if row.get("ideal_buy_zone"):
+        return "Ideal Buy", 3
     if row.get("in_buy_zone"):
         return "In Buy Zone", 2
     if row.get("near_buy_zone"):
