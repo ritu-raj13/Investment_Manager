@@ -1,0 +1,15 @@
+---
+description: Investment domain expertise for zone alerts, rebalancing, and portfolio logic
+alwaysApply: true
+---
+
+# Investment Domain Expertise
+
+When implementing or changing features in this repo:
+
+1. **Think like a domain expert and software architect** — validate requirements against investing logic before coding. Do not build blindly from requirement text.
+2. **Price zones are directional action triggers**, not symmetric proximity bubbles. Each zone has a favorable price direction:
+   - Buy / Average: lower is better (no lower floor on tracking)
+   - Sell: higher is better (no upper cap on tracking)
+3. **Signal tiers**: `ideal` (best opportunity), `in` (at target band), `near` (3% early warning on the unfavorable side only).
+4. **Centralize domain rules** in `backend/utils/` (e.g. `zones.py`) — avoid duplicating inline zone math in routes or UI.

@@ -58,6 +58,24 @@ const PriceZoneAlerts = () => {
     })}`;
   };
 
+  const TIER_ORDER = { ideal: 0, in: 1, near: 2 };
+
+  const sortZoneSignals = (list) =>
+    [...list].sort((a, b) => {
+      const tierDiff = (TIER_ORDER[a.signal_tier] ?? 1) - (TIER_ORDER[b.signal_tier] ?? 1);
+      if (tierDiff !== 0) return tierDiff;
+      const distA = a.distance_pct != null ? Math.abs(a.distance_pct) : 0;
+      const distB = b.distance_pct != null ? Math.abs(b.distance_pct) : 0;
+      return distA - distB;
+    });
+
+  const idealTierLabel = (title) => {
+    if (title.includes('Buy')) return 'Ideal Buy';
+    if (title.includes('Average')) return 'Ideal Avg';
+    if (title.includes('Sell')) return 'Ideal Sell';
+    return 'Ideal';
+  };
+
   const zoneCard = (title, icon, list, color) => (
     <Grid item xs={12} md={4}>
       <Paper sx={{ p: 2, borderRadius: 3, height: '100%', border: '1px solid rgba(148,163,184,0.2)' }}>
@@ -101,13 +119,17 @@ const PriceZoneAlerts = () => {
                 <Typography variant="caption" color="text.secondary" display="block">
                   LTP: {formatCurrency(item.current_price)} | Zone: {item.zone}
                 </Typography>
-                {item.distance_pct != null && (
-                  <Chip
-                    size="small"
-                    label={`${item.distance_type === 'above' ? '+' : '-'}${Math.abs(item.distance_pct).toFixed(2)}%`}
-                    sx={{ mt: 0.75 }}
-                  />
-                )}
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.75 }}>
+                  {item.signal_tier === 'ideal' && (
+                    <Chip size="small" label={idealTierLabel(title)} color={color} />
+                  )}
+                  {item.distance_pct != null && (
+                    <Chip
+                      size="small"
+                      label={`${item.distance_type === 'above' ? '+' : '-'}${Math.abs(item.distance_pct).toFixed(2)}%`}
+                    />
+                  )}
+                </Box>
               </Paper>
             ))}
           </Box>
@@ -136,9 +158,9 @@ const PriceZoneAlerts = () => {
     near_average_zone: [],
   };
 
-  const buySignals = [...actionItems.in_buy_zone, ...actionItems.near_buy_zone];
-  const averageSignals = [...actionItems.in_average_zone, ...actionItems.near_average_zone];
-  const sellSignals = [...actionItems.in_sell_zone, ...actionItems.near_sell_zone];
+  const buySignals = sortZoneSignals([...actionItems.in_buy_zone, ...actionItems.near_buy_zone]);
+  const averageSignals = sortZoneSignals([...actionItems.in_average_zone, ...actionItems.near_average_zone]);
+  const sellSignals = sortZoneSignals([...actionItems.in_sell_zone, ...actionItems.near_sell_zone]);
 
   if (loading) {
     return (
